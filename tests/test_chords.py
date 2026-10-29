@@ -112,3 +112,45 @@ def test_slash_label_spelling():
     assert chords.chord_label(7, "maj", bass=11) == "G/B"
     assert chords.chord_label(1, "min", flats=True, bass=8) == "Dbm/Ab"
     assert chords.chord_label(7, "maj", bass=7) == "G"
+
+
+def test_short_rests_carry_the_chord():
+    # Hits with a beat of rest between them: a chart shows the chord, not "no chord", over the rests.
+    from synth import tone
+
+    beat = 60 / 76
+    prog = [(5, "min"), (3, "maj"), (1, "maj"), (3, "maj")]
+    y = np.zeros(int(16 * 3 * beat * SR + 2 * SR), dtype=np.float32)
+    for b in range(48):
+        if b % 2:
+            continue  # rest
+        root, q = prog[(b // 4) % 4]
+        s = int(b * beat * SR)
+        note = sum(0.25 * tone(60 + root + i, beat * 0.9) for i in ((0, 3, 7) if q == "min" else (0, 4, 7)))
+        note += 0.4 * tone(36 + root, beat * 0.9, harmonics=3)
+        y[s:s + note.size] += note
+    result = analyze_signal(y / np.abs(y).max(), SR)
+    inside = [c for c in result["chords"]["basic"] if 1.0 < c["start"] < 46 * beat]
+    assert not [c for c in inside if c["root"] is None], [c["label"] for c in inside]
+
+
+def test_minor_key_with_major_dominant_from_chords():
+    # Dm - C - Bb - A: the A major chord's C# and the C/E pull the profile towards A minor.
+    from synth import tone
+
+    from keyfinder.analysis import improve_with_stems
+
+    beat = 60 / 120
+    prog = [(2, (0, 3, 7)), (0, (0, 4, 7)), (10, (0, 4, 7)), (9, (0, 4, 7))]
+    y = np.zeros(int(64 * beat * SR + SR), dtype=np.float32)
+    for b in range(64):
+        root, ivs = prog[(b // 4) % 4]
+        s = int(b * beat * SR)
+        note = sum(0.25 * tone(62 + root - 2 + i, beat) for i in ivs) + 0.4 * tone(38 + root - 2, beat, harmonics=3)
+        y[s:s + note.size] += note
+    y /= np.abs(y).max()
+    result = analyze_signal(y, SR)
+    assert result["key"]["name"] == "D minor"
+    improved = improve_with_stems(result, {"bass": y, "other": y}, SR)
+    assert improved["key"]["name"] == "D minor"
+    assert "Bb" in labels(improved["chords"]["basic"]) and "A#" not in labels(improved["chords"]["basic"])

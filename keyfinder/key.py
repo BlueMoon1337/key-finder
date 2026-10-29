@@ -111,40 +111,47 @@ def detect_key(chroma: np.ndarray) -> dict:
     }
 
 
-def refine_with_chords(key: dict, segments: list[dict]) -> dict:
-    """Choose between a key and its relative major/minor using the chord sequence.
+# How much time on a key's home chord counts against the pitch-class profile (see refine_with_chords).
+KEY_CHORD_WEIGHT = 1.5
 
-    Pitch-class profiles barely separate relative keys (B minor and D major
-    share every note), but songs tend to dwell on, start on and end on the
-    tonic chord.
+
+def refine_with_chords(key: dict, segments: list[dict]) -> dict:
+    """Choose the key using the chord sequence as well as the pitch-class profile.
+
+    Profiles can mislead: relative keys share every note (B minor and D major), and a minor
+    song's major dominant (A in D minor) pulls towards the key a fifth up. But songs dwell
+    on, start on and end on their home chord. Every key is scored by its profile match plus
+    KEY_CHORD_WEIGHT times its home chord's share of the song (and a little for being the
+    first or last chord); the best one wins.
     """
     chords = [s for s in segments if s.get("root") is not None]
-    if not chords:
+    if not chords or not key.get("profile"):
         return key
-    rel_tonic, rel_mode = relative_key(key["tonic"], key["mode"])
+    total = sum(s["end"] - s["start"] for s in chords) or 1.0
 
     def tonic_weight(tonic: int, mode: str) -> float:
         def is_tonic(seg: dict) -> bool:
             minor = seg["quality"] in ("min", "min7")
             return seg["root"] == tonic and minor == (mode == "minor")
-        weight = sum(s["end"] - s["start"] for s in chords if is_tonic(s))
-        total = sum(s["end"] - s["start"] for s in chords) or 1.0
-        weight /= total
-        weight += 0.15 * is_tonic(chords[0]) + 0.15 * is_tonic(chords[-1])
-        return weight
+        weight = sum(s["end"] - s["start"] for s in chords if is_tonic(s)) / total
+        return weight + 0.15 * is_tonic(chords[0]) + 0.15 * is_tonic(chords[-1])
 
-    if tonic_weight(rel_tonic, rel_mode) <= tonic_weight(key["tonic"], key["mode"]) + 0.05:
+    scores = key_scores(np.asarray(key["profile"], dtype=float))
+    best = max(
+        ((tonic, mode) for mode in ("major", "minor") for tonic in range(12)),
+        key=lambda k: scores[0 if k[1] == "major" else 1, k[0]] + KEY_CHORD_WEIGHT * tonic_weight(*k),
+    )
+    if best == (key["tonic"], key["mode"]):
         return key
-    rel_score = next((c["score"] for c in key["candidates"] if c["tonic"] == rel_tonic and c["mode"] == rel_mode), None)
-    if rel_score is None or rel_score < key["candidates"][0]["score"] - 0.15:
-        return key  # the profile clearly prefers the original key
+    tonic, mode = best
+    rel_tonic, rel_mode = relative_key(tonic, mode)
     refined = dict(key)
     refined.update({
-        "tonic": rel_tonic,
-        "mode": rel_mode,
-        "name": key_name(rel_tonic, rel_mode),
-        "camelot": camelot(rel_tonic, rel_mode),
-        "relative": key["name"],
-        "flats": uses_flats(rel_tonic, rel_mode),
+        "tonic": tonic,
+        "mode": mode,
+        "name": key_name(tonic, mode),
+        "camelot": camelot(tonic, mode),
+        "relative": key_name(rel_tonic, rel_mode),
+        "flats": uses_flats(tonic, mode),
     })
     return refined

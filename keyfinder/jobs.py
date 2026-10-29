@@ -177,10 +177,9 @@ class JobStore:
             if song["mode"] != "none":
                 separated, sr = self._separate(song_id, song, source)
                 self._update(song_id, stage="Reading the chords from the stems", progress=0.85)
-                better = analysis.chords_from_stems(result, separated, sr)
-                if better:
-                    downbeats = analysis.downbeats_from_chords(result["beats"], better["basic"], result["downbeats"])
-                    result = {**result, "chords": better, "downbeats": downbeats}
+                improved = analysis.improve_with_stems(result, separated, sr)
+                if improved is not result:
+                    result = improved
                     self._update(song_id, analysis=result)
                 self._update(song_id, stage="Encoding stems", progress=0.87)
                 for name, data in separated.items():

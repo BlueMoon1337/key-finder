@@ -31,6 +31,10 @@ SUFFIX = {"maj": "", "min": "m", "7": "7", "maj7": "maj7", "min7": "m7",
 NO_CHORD = "N"
 # How much a bass note matching the root counts towards a chord.
 BASS_WEIGHT = 0.2
+# How well a chord must match before "no chord" (N) is preferred, outside silences.
+NO_CHORD_SCORE = 0.35
+# Only silences at least this long are "no chord"; the chord carries over shorter rests and stops.
+MIN_SILENCE_SECONDS = 2.0
 # A bass note on the chord's third or fifth (an inversion, e.g. G/B) counts this share of that.
 INVERSION_SHARE = 0.8
 # The bass note must hold this share of a chord's bass energy to be written as a slash chord.
@@ -118,9 +122,21 @@ def recognize(
         in_key = np.array([chord_pitch_classes(r, q) <= diatonic for r, q in vocab])
         similarity += 0.05 * in_key[:, None]
 
-    # "No chord" state for silence or unpitched segments.
-    silent = energy < 0.05 * (np.percentile(energy, 95) + 1e-9)
-    nc_score = np.where(silent, 1.5, 0.35)
+    # "No chord" for real silences. A short rest (a stop, a gap between hits) carries no evidence
+    # either way, so the smoothing below carries the chord over it, as a chord chart would.
+    quiet = energy < 0.05 * (np.percentile(energy, 95) + 1e-9)
+    silent = np.zeros_like(quiet)
+    seconds = np.diff(bounds) / fps
+    start = None
+    for i, q in enumerate([*quiet, False]):
+        if q and start is None:
+            start = i
+        elif not q and start is not None:
+            if seconds[start:i].sum() >= MIN_SILENCE_SECONDS:
+                silent[start:i] = True
+            start = None
+    similarity[:, quiet & ~silent] = 0.0
+    nc_score = np.where(silent, 1.5, np.where(quiet, -1.0, NO_CHORD_SCORE))
     similarity = np.vstack([similarity, nc_score])
 
     states = similarity.shape[0]

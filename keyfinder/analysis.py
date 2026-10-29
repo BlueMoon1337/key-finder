@@ -74,6 +74,22 @@ def analyze_signal(y: np.ndarray, sr: int = audio.ANALYSIS_SR) -> dict:
     }
 
 
+def improve_with_stems(result: dict, stems: dict[str, np.ndarray], sr: int) -> dict:
+    """The analysis redone with the separated stems: chords, then the key and downbeats they imply.
+
+    Returns ``result`` unchanged when there are no harmonic stems (vocals and accompaniment only).
+    """
+    levels = chords_from_stems(result, stems, sr)
+    if levels is None:
+        return result
+    refined = key.refine_with_chords(result["key"], levels["basic"])
+    if refined["name"] != result["key"]["name"]:
+        # Spell and weigh the chords for the key they turned out to be in.
+        levels = chords_from_stems({**result, "key": refined}, stems, sr)
+    downbeats = downbeats_from_chords(result["beats"], levels["basic"], result["downbeats"])
+    return {**result, "key": refined, "chords": levels, "downbeats": downbeats}
+
+
 def chords_from_stems(result: dict, stems: dict[str, np.ndarray], sr: int) -> dict[str, list[dict]] | None:
     """Re-read the chords from the separated harmonic parts (everything but vocals and drums).
 

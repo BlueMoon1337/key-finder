@@ -47,3 +47,17 @@ def test_tuning_offset_is_detected():
     pitch = features.pitch_features(y, SR)
     assert pitch["tuning"] == pytest.approx(0.3, abs=0.06)
     assert key.detect_key(pitch["chroma"])["name"] == "C major"
+
+
+def test_real_songs_whose_chords_overrule_the_profile():
+    # Profiles and chord timelines captured from two recordings (tests/data). Their pitch
+    # profiles alone point to A minor and F minor; the chords sit on Dm and Eb.
+    import json
+    from pathlib import Path
+
+    cases = json.loads((Path(__file__).parent / "data" / "key_from_chords.json").read_text(encoding="utf-8"))
+    for name, case in cases.items():
+        profile = np.asarray(case["profile"])
+        k = key.detect_key(np.tile(profile[:, None], (1, 4)))
+        assert k["name"] == case["profile_key"], name
+        assert key.refine_with_chords(k, case["chords"])["name"] == case["expected"], name
