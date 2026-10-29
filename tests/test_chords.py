@@ -48,3 +48,40 @@ def test_chord_label_spelling():
     assert chords.chord_label(10, "min7", flats=True) == "Bbm7"
     assert chords.chord_label(10, "min7", flats=False) == "A#m7"
     assert chords.chord_label(None, None) == "N"
+
+
+def test_chords_survive_a_sustained_tonic_pad():
+    # A pad holding the tonic under the whole song (common in worship sets) used to outvote the chords.
+    from synth import tone
+
+    y = progression([(0, "maj"), (5, "maj"), (7, "maj"), (9, "min")], bpm=110, repeats=3)
+    pad = np.zeros_like(y)
+    for start in range(0, y.size, SR):
+        note = 0.5 * (tone(48, 1.0, harmonics=3) + tone(60, 1.0, harmonics=3))
+        pad[start:start + note.size] += note[: pad.size - start]
+    mixed = (y + pad) / np.abs(y + pad).max()
+    result = analyze_signal(mixed, SR)
+    # The pad rings on after the progression, so a final C is right too.
+    assert labels(result["chords"]["basic"])[:12] == ["C", "F", "G", "Am"] * 3
+
+
+def test_chords_from_stems_ignore_drums_and_melody():
+    from synth import click, tone
+
+    from keyfinder.analysis import chords_from_stems
+
+    harmonic = progression([(2, "maj"), (7, "maj"), (9, "maj"), (2, "maj")], bpm=96, drums=False, repeats=2)
+    rng = np.random.default_rng(3)
+    drums = np.zeros_like(harmonic)
+    k = click()
+    for i in range(0, drums.size - k.size, SR // 4):
+        drums[i:i + k.size] += 2.0 * k
+    drums += 0.05 * rng.standard_normal(drums.size)
+    melody = np.concatenate([tone(m, 0.3) for m in [73, 76, 78, 80, 81, 83] * 40])[: harmonic.size]
+    melody = np.pad(melody, (0, harmonic.size - melody.size))
+    mix = harmonic + drums + melody
+    result = analyze_signal(mix, SR)
+    stems = {"vocals": melody, "drums": drums, "bass": 0.5 * harmonic, "other": 0.5 * harmonic}
+    better = chords_from_stems(result, stems, SR)
+    assert labels(better["basic"]) == ["D", "G", "A", "D", "G", "A", "D"]  # the two Ds at the loop join merge
+    assert chords_from_stems(result, {"vocals": melody, "accompaniment": harmonic}, SR) is None

@@ -29,6 +29,8 @@ LEVELS = {
 SUFFIX = {"maj": "", "min": "m", "7": "7", "maj7": "maj7", "min7": "m7",
           "dim": "dim", "aug": "aug", "sus2": "sus2", "sus4": "sus4"}
 NO_CHORD = "N"
+# How much a bass note matching the root counts towards a chord.
+BASS_WEIGHT = 0.3
 
 
 def chord_label(root: int | None, quality: str | None, flats: bool = False) -> str:
@@ -96,7 +98,7 @@ def recognize(
     # A strong bass note matching the root makes that chord more likely.
     bass_norm = seg_bass / np.maximum(seg_bass.sum(axis=0, keepdims=True), 1e-9)
     roots = np.array([r for r, _ in vocab])
-    similarity += 0.15 * bass_norm[roots]
+    similarity += BASS_WEIGHT * bass_norm[roots]
     if key is not None:
         diatonic = scale_pitch_classes(key["tonic"], key["mode"])
         in_key = np.array([chord_pitch_classes(r, q) <= diatonic for r, q in vocab])

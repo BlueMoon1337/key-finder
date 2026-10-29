@@ -94,6 +94,24 @@ def pitch_features(y: np.ndarray, sr: int, tuning: float | None = None) -> dict:
     }
 
 
+def clean_chroma(chroma: np.ndarray, fps: float, pedal_seconds: float = 12.0, pedal_amount: float = 0.6) -> np.ndarray:
+    """Chroma for chord recognition, with what isn't the changing harmony turned down.
+
+    * Each frame's median across the 12 pitch classes is its noise floor (drums, breath,
+      reverb) and is removed, which sharpens the contrast between chord tones and the rest.
+    * A note held for many seconds (a pad or bass pedal on the tonic, common in worship and
+      ambient arrangements) is partly removed, so it doesn't outvote the chords above it.
+    """
+    from scipy import ndimage
+
+    c = np.maximum(0.0, chroma - np.median(chroma, axis=0, keepdims=True))
+    window = int(pedal_seconds * fps)
+    if c.shape[1] > window:
+        steady = ndimage.minimum_filter1d(ndimage.median_filter(c, size=(1, max(1, window // 4))), window, axis=1)
+        c = np.maximum(0.0, c - pedal_amount * steady)
+    return c
+
+
 def onset_strength(y: np.ndarray, sr: int, max_freq: float | None = None) -> np.ndarray:
     """Spectral-flux onset envelope at ``sr / HOP`` frames per second, normalised to unit max."""
     spec = magnitude_spectrogram(y, ONSET_FFT)

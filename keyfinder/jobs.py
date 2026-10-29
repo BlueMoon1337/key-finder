@@ -176,7 +176,12 @@ class JobStore:
             stems = [ORIGINAL]
             if song["mode"] != "none":
                 separated, sr = self._separate(song_id, song, source)
-                self._update(song_id, stage="Encoding stems", progress=0.85)
+                self._update(song_id, stage="Reading the chords from the stems", progress=0.85)
+                better = analysis.chords_from_stems(result, separated, sr)
+                if better:
+                    result = {**result, "chords": better}
+                    self._update(song_id, analysis=result)
+                self._update(song_id, stage="Encoding stems", progress=0.87)
                 for name, data in separated.items():
                     audio.save(stems_dir / f"{name}.mp3", data, sr)
                     stems.append(name)
