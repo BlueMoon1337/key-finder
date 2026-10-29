@@ -81,6 +81,24 @@ export function beatIndexAt(beats: number[], t: number) {
   return lo - 1
 }
 
+/**
+ * Which beat of its bar `t` falls on (0 for the downbeat), or -1 before the first beat.
+ * Counted from the latest downbeat, because the bar's phase can shift between sections.
+ */
+export function beatInBar(beats: number[], downbeats: number[], t: number, beatsPerBar = 4) {
+  const b = beatIndexAt(beats, t)
+  if (b < 0) return -1
+  const d = beatIndexAt(downbeats, beats[b] + 1e-6)
+  if (d < 0) {
+    // Before the first downbeat: count back from it.
+    const first = beats.indexOf(downbeats[0])
+    return first < 0 ? mod12(b) % beatsPerBar : (((b - first) % beatsPerBar) + beatsPerBar) % beatsPerBar
+  }
+  const start = beats.indexOf(downbeats[d])
+  // A bar stretched where the phase shifts stays on its last beat rather than starting a new bar.
+  return start < 0 ? 0 : Math.min(b - start, beatsPerBar - 1)
+}
+
 export function formatTime(s: number) {
   if (!Number.isFinite(s) || s < 0) s = 0
   return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`

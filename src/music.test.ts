@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { beatIndexAt, camelot, chordIndexAt, chordLabel, formatTime, keyName, keySortValue, keyUsesFlats, relativeKey } from './music'
+import { beatIndexAt, beatInBar, camelot, chordIndexAt, chordLabel, formatTime, keyName, keySortValue, keyUsesFlats, relativeKey } from './music'
 
 describe('keys', () => {
   it('names keys with conventional spellings', () => {
@@ -63,6 +63,19 @@ describe('chords', () => {
     expect(beatIndexAt([0.5, 1, 1.5], 0.2)).toBe(-1)
     expect(beatIndexAt([0.5, 1, 1.5], 1)).toBe(1)
     expect(beatIndexAt([0.5, 1, 1.5], 9)).toBe(2)
+  })
+
+  it('counts beats from the latest downbeat, even when the bar shifts', () => {
+    const beats = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    // Bars start at 1 and 5, then a section shifts the bar so it starts at 10.
+    const downbeats = [1, 5, 10]
+    expect(beatInBar(beats, downbeats, 0)).toBe(3) // the pickup before the first bar
+    expect(beatInBar(beats, downbeats, 1)).toBe(0)
+    expect(beatInBar(beats, downbeats, 7.5)).toBe(2)
+    expect(beatInBar(beats, downbeats, 9)).toBe(3) // beat 5 of a stretched bar stays on the last dot
+    expect(beatInBar(beats, downbeats, 10)).toBe(0)
+    expect(beatInBar(beats, downbeats, 11.2)).toBe(1)
+    expect(beatInBar(beats, downbeats, -1)).toBe(-1)
   })
 
   it('formats times', () => {

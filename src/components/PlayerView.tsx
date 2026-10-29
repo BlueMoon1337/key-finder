@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { type Chord, type ChordLevel, type Song, coverUrl, exportPath, saveFromApi } from '../api'
-import { beatIndexAt, camelot, chordIndexAt, chordLabel, formatTime, keyUsesFlats, mod12, relativeKey, transposeKeyName } from '../music'
+import { beatInBar, beatIndexAt, camelot, chordIndexAt, chordLabel, formatTime, keyUsesFlats, relativeKey, transposeKeyName } from '../music'
 import { MAX_SPEED, MIN_SPEED, playback } from '../playback'
 import { errorMessage, loadSong, navigate, toast, updateSettings, useApp } from '../store'
 import { Back5Icon, ChevronLeftIcon, Forward5Icon, LibraryIcon, PauseIcon, PlayIcon } from './Icons'
@@ -120,7 +120,6 @@ function NowPlaying({ song, chords, semitones, flats }: { song: Song; chords: Ch
   const last = useRef({ chord: -2, label: '' })
   const drag = useRef<{ start: number; moved: boolean } | null>(null)
   const duration = a.duration
-  const firstDownbeat = useMemo(() => (a.downbeats.length ? a.beats.indexOf(a.downbeats[0]) : 0), [a])
 
   // Re-render the chord labels when the key or detail level changes.
   useEffect(() => {
@@ -143,7 +142,7 @@ function NowPlaying({ song, chords, semitones, flats }: { song: Song; chords: Ch
       if (nextRef.current) nextRef.current.textContent = next ? chordLabel(next, semitones, flats) : '–'
     }
     const b = beatIndexAt(a.beats, t)
-    const pos = b >= 0 ? mod12(b - firstDownbeat) % 4 : -1
+    const pos = beatInBar(a.beats, a.downbeats, t)
     const fresh = b >= 0 && t - a.beats[b] < 0.15 && playback.state.playing
     dotsRef.current?.querySelectorAll('i').forEach((dot, n) => dot.classList.toggle('on', fresh && n === pos))
     draw(t)

@@ -74,3 +74,25 @@ def test_misleading_accents_are_corrected_by_chords():
     changes = [c["start"] for c in result["chords"]["basic"][1:] if c["root"] is not None]
     on_downbeat = sum(min(abs(np.array(result["downbeats"]) - t)) < 0.15 for t in changes)
     assert on_downbeat >= 0.8 * len(changes), (result["downbeats"][:4], changes[:4], beats[:6])
+
+
+def test_downbeats_follow_a_phase_shift_between_sections():
+    # The tracker lost a beat between sections: chords change on beat index 0 mod 4 for the
+    # first half and 2 mod 4 for the second (as in a rubato piano recording).
+    from keyfinder.analysis import downbeats_from_chords
+
+    beats = [round(0.8 * i, 3) for i in range(80)]
+    changes = list(range(0, 40, 4)) + list(range(42, 80, 4))
+    segments = [{"start": 0.0, "root": 0}] + [{"start": beats[i], "root": (i // 4) % 12} for i in changes[1:]]
+    downbeats = downbeats_from_chords(beats, segments, beats[0::4])
+    assert all(beats[i] in downbeats for i in changes)
+    assert beats[40] not in downbeats  # the old phase ends where the new one begins
+
+
+def test_one_stray_change_does_not_shift_the_bar():
+    from keyfinder.analysis import downbeats_from_chords
+
+    beats = [round(0.5 * i, 3) for i in range(80)]
+    changes = [i for i in range(0, 80, 4) if i != 40] + [41]
+    segments = [{"start": 0.0, "root": 0}] + [{"start": beats[i], "root": i % 12} for i in sorted(changes)[1:]]
+    assert downbeats_from_chords(beats, segments, beats[0::4]) == beats[0::4]

@@ -23,32 +23,70 @@ def chord_levels(y: np.ndarray, sr: int, beats: list[float], detected_key: dict,
     }
 
 
+# Switching the bar's phase costs as much as this many chord changes off the downbeat, so it
+# only happens when several changes in a row agree (see downbeats_from_chords).
+PHASE_SWITCH_COST = 3.0
+
+
 def downbeats_from_chords(beats: list[float], segments: list[dict], current: list[float],
-                         beats_per_bar: int = 4) -> list[float]:
-    """Downbeats moved to where the chords change, when the chords say so clearly.
+                          beats_per_bar: int = 4) -> list[float]:
+    """Downbeats placed where the chords change, section by section.
 
     Chords mostly change on the first beat of a bar, which is more reliable than the
     low-frequency accents the first guess comes from (a live mix can easily mislead those).
-    Keeps ``current`` when there are too few changes or no clear winner.
+    The bar's phase may also shift partway through: the beat tracker keeps one tempo, so when
+    a performer slows down or holds a note between sections it gains or loses a beat. A
+    Viterbi pass over the chord changes picks a phase for each, paying PHASE_SWITCH_COST to
+    change it, and the bars follow. Keeps ``current`` when there are too few changes.
     """
     if len(beats) < 2 * beats_per_bar:
         return current
     times = np.asarray(beats)
-    votes = np.zeros(beats_per_bar)
+    events = []  # beat index of each chord change that lands on a beat
     for seg in segments[1:]:
         if seg["root"] is None:
             continue
         i = int(np.argmin(np.abs(times - seg["start"])))
         if abs(times[i] - seg["start"]) < 0.15:
-            votes[i % beats_per_bar] += 1
-    if votes.sum() < 8:
+            events.append(i)
+    if len(events) < 8:
         return current
-    phase = int(votes.argmax())
-    current_phase = int(np.argmin(np.abs(times - current[0]))) % beats_per_bar if current else -1
-    # Move only when the chords clearly prefer another phase.
-    if phase != current_phase and votes[phase] >= 0.4 * votes.sum() and votes[phase] >= 1.5 * votes[current_phase]:
-        return [round(float(t), 3) for t in times[phase::beats_per_bar]]
-    return current
+
+    # Viterbi over the events: state = which beat (mod beats_per_bar) is the downbeat.
+    n, k = len(events), beats_per_bar
+    miss = np.array([[0.0 if e % k == p else 1.0 for p in range(k)] for e in events])
+    cost = miss[0].copy()
+    back = np.zeros((n, k), dtype=int)
+    switch = PHASE_SWITCH_COST * (1 - np.eye(k))
+    for t in range(1, n):
+        total = cost[:, None] + switch
+        back[t] = total.argmin(axis=0)
+        cost = total[back[t], np.arange(k)] + miss[t]
+    phases = np.zeros(n, dtype=int)
+    phases[-1] = int(cost.argmin())
+    for t in range(n - 1, 0, -1):
+        phases[t - 1] = back[t, phases[t]]
+
+    current_phase = int(np.argmin(np.abs(times - current[0]))) % k if current else -1
+    if len(set(phases.tolist())) == 1:
+        # One phase for the whole song: move to it only when the chords clearly prefer it.
+        votes = np.bincount([e % k for e in events], minlength=k)
+        phase = int(phases[0])
+        if phase == current_phase or votes[phase] < 0.4 * n or votes[phase] < 1.5 * votes[current_phase]:
+            return current
+        return [round(float(t), 3) for t in times[phase::k]]
+
+    # Each beat takes the phase of the section it's in; a new section starts at its first change.
+    starts = [events[t] for t in range(n) if t == 0 or phases[t] != phases[t - 1]]
+    section_phase = [int(phases[t]) for t in range(n) if t == 0 or phases[t] != phases[t - 1]]
+    bars = []
+    for b in range(len(times)):
+        section = max(0, int(np.searchsorted(starts, b, side="right")) - 1)
+        if b % k == section_phase[section]:
+            bars.append(b)
+    # Where the phase shifts, stretch the last bar rather than leave a bar of a beat or two.
+    kept = [b for i, b in enumerate(bars) if i + 1 == len(bars) or bars[i + 1] - b >= k or b == 0]
+    return [round(float(times[b]), 3) for b in kept]
 
 
 def analyze_signal(y: np.ndarray, sr: int = audio.ANALYSIS_SR) -> dict:
