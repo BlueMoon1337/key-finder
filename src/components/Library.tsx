@@ -254,8 +254,9 @@ function SongRow({ song: s, current, onOpen, menu }: { song: SongSummary; curren
           <span className="cell" role="cell">
             {s.bpm ? Math.round(s.bpm) : '-'}
           </span>
-          <span className="cell" role="cell" title={s.duration ? formatTime(s.duration) : undefined}>
+          <span className="cell" role="cell" title={s.keys ? s.keys.join(' → ') : s.duration ? formatTime(s.duration) : undefined}>
             {s.key ?? '-'}
+            {s.keys && <span className="key-changes"> +{s.keys.length - 1}</span>}
           </span>
         </>
       )}

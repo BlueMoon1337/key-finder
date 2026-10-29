@@ -64,14 +64,15 @@ def _vocabulary(level: str) -> list[tuple[int, str]]:
 # Colour notes players add without changing the chord's name (a 7th or 9th in worship and pop
 # voicings): weighted at this share in a chord's template instead of counting against it.
 COLOR_WEIGHT = 0.4
-# The 9th never changes a chord's name here; 7ths only where the level can't name 7th chords
-# (at the others a sounding 7th should make it a 7th chord).
+# The 9th never changes a chord's name here. At the basic level, which can't name 7th chords, a
+# major chord also tolerates its major 7th (Abmaj7 voicings read as Ab, not Cm). Minor 7ths are
+# left out: they make chords a third apart interchangeable (C-E-G is Am7 without its A).
 COLOR_TONES = {"maj": (2,), "min": (2,), "7": (2,), "maj7": (2,), "min7": (2,)}
-BASIC_COLOR_TONES = {"maj": (11, 10, 2), "min": (10, 2)}
+BASIC_COLOR_TONES = {"maj": (11, 2), "min": (2,)}
 
 
-def _templates(vocab: list[tuple[int, str]], level: str = "intermediate") -> np.ndarray:
-    colors = BASIC_COLOR_TONES if level == "basic" else COLOR_TONES
+def _templates(vocab: list[tuple[int, str]], level: str = "intermediate", plain: bool = False) -> np.ndarray:
+    colors = {} if plain else BASIC_COLOR_TONES if level == "basic" else COLOR_TONES
     t = np.zeros((len(vocab), 12))
     for i, (root, quality) in enumerate(vocab):
         intervals = QUALITIES[quality][0]
@@ -123,11 +124,17 @@ def recognize(
     level: str = "intermediate",
     key: dict | None = None,
     self_transition: float = 0.7,
+    key_sections: list[dict] | None = None,
+    plain: bool = False,
 ) -> list[dict]:
     """Chord segments ``{start, end, root, quality, bass, label}`` covering the track.
 
     ``bass`` is set (and the label is a slash chord, e.g. G/B) when another chord tone
-    is clearly in the bass, at the levels in SLASH_LEVELS.
+    is clearly in the bass, at the levels in SLASH_LEVELS. With ``key_sections`` (a medley
+    or a key change: ``{start, end, tonic, mode, flats}`` each) every part of the song is
+    weighed and spelled in its own key; otherwise in ``key``. ``plain`` reads bare triads,
+    without colour notes or the foreign-bass rule: steadier for judging the key, where those
+    voicing details make chords a third apart overlap.
     """
     n_frames = chroma.shape[1]
     if n_frames == 0:
@@ -139,7 +146,7 @@ def recognize(
     seg_bass, _ = sync_to_beats(bass, beat_frames, n_frames)
 
     vocab = _vocabulary(level)
-    templates = _templates(vocab, level)
+    templates = _templates(vocab, level, plain)
     energy = seg_chroma.sum(axis=0)
     norm = seg_chroma / np.maximum(np.linalg.norm(seg_chroma, axis=0, keepdims=True), 1e-9)
     similarity = templates @ norm  # (chords, segments)
@@ -158,8 +165,14 @@ def recognize(
     tones = np.zeros((len(vocab), 12))
     for i, (r, q) in enumerate(vocab):
         tones[i, list(chord_pitch_classes(r, q))] = 1.0
-    similarity -= FOREIGN_BASS_PENALTY * ((1.0 - tones) @ bass_norm)
-    if key is not None:
+    if not plain:
+        similarity -= FOREIGN_BASS_PENALTY * ((1.0 - tones) @ bass_norm)
+    mids = (bounds[:-1] + bounds[1:]) / 2 / fps
+    if key_sections:
+        for section in key_sections:
+            inside = (mids >= section["start"]) & (mids < section["end"])
+            similarity[:, inside] += key_prior(vocab, section)[:, None]
+    elif key is not None:
         similarity += key_prior(vocab, key)[:, None]
 
     # "No chord" for real silences. A short rest (a stop, a gap between hits) carries no evidence
@@ -205,7 +218,12 @@ def recognize(
     for t in range(n_seg - 1, 0, -1):
         path[t - 1] = back[path[t], t]
 
-    flats = bool(key.get("flats")) if key else False
+    def flats_at(t: float) -> bool:
+        for section in key_sections or ():
+            if section["start"] <= t < section["end"]:
+                return bool(section.get("flats"))
+        return bool(key.get("flats")) if key else False
+
     segments: list[dict] = []
     spans: list[list[int]] = []  # the beat segments each chord covers
     for i, state in enumerate(path):
@@ -229,5 +247,5 @@ def recognize(
             audible = profile.sum() / len(span) >= 0.1 * bass_level
             if clear and audible and note != seg["root"] and note in chord_pitch_classes(seg["root"], seg["quality"]):
                 seg["bass"] = note
-        seg["label"] = chord_label(seg["root"], seg["quality"], flats, seg["bass"])
+        seg["label"] = chord_label(seg["root"], seg["quality"], flats_at(seg["start"]), seg["bass"])
     return segments

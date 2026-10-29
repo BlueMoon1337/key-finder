@@ -405,6 +405,10 @@ code {
   height: 88px;
   border-radius: 16px;
 }
+.key-changes {
+  color: var(--muted);
+  font-size: 13px;
+}
 .cell.stage,
 .cell.error {
   grid-column: span 2;

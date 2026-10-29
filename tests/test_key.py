@@ -68,3 +68,29 @@ def test_relative_key_ambiguity_gives_one_of_the_pair():
     # Bm - G - D - A is i-VI-III-VII in B minor and vi-IV-I-V in D major: either is a fair reading.
     name = analyze_signal(progression([(11, "min"), (7, "maj"), (2, "maj"), (9, "maj")], repeats=3), SR)["key"]["name"]
     assert name in ("B minor", "D major")
+
+
+def test_key_change_is_found_and_spelled_per_section():
+    # 64 s in C major (I-IV-V-I), then 64 s in Eb major: two sections, chords spelled for each.
+    from synth import tone
+
+    beat = 0.5
+    y = np.zeros(int(256 * beat * SR + SR), dtype=np.float32)
+    for b in range(256):
+        tonic = 0 if b < 128 else 3
+        root = tonic + (0, 5, 7, 0)[(b // 4) % 4]
+        s = int(b * beat * SR)
+        note = sum(0.25 * tone(60 + root + i, beat) for i in (0, 4, 7)) + 0.4 * tone(36 + root, beat, harmonics=3)
+        y[s:s + note.size] += note
+    result = analyze_signal(y / np.abs(y).max(), SR)
+    sections = result["key_sections"]
+    assert [s["name"] for s in sections] == ["C major", "Eb major"]
+    assert abs(sections[1]["start"] - 64) < 8
+    late = [c["label"] for c in result["chords"]["basic"] if c["start"] > 72 and c["root"] is not None]
+    assert "Ab" in late and "Bb" in late and "G#" not in late and "A#" not in late
+
+
+def test_one_key_song_has_one_section():
+    result = analyze_signal(progression([(0, "maj"), (7, "maj"), (9, "min"), (5, "maj")], bpm=120, repeats=8), SR)
+    assert [s["name"] for s in result["key_sections"]] == ["C major"]
+    assert result["key_sections"][0]["start"] == 0 and result["key_sections"][0]["end"] == result["duration"]

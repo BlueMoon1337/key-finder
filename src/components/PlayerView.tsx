@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { type Chord, type ChordLevel, type Song, coverUrl, editSong, exportPath, getSong, saveFromApi } from '../api'
-import { beatInBar, beatIndexAt, camelot, chordIndexAt, chordLabel, formatTime, keyUsesFlats, relativeKey, transposeKeyName } from '../music'
+import { beatInBar, beatIndexAt, camelot, chordIndexAt, chordLabel, formatTime, keyName, keySectionAt, keyUsesFlats, relativeKey } from '../music'
 import { MAX_SPEED, MIN_SPEED, playback } from '../playback'
 import { errorMessage, loadSong, navigate, refreshLibrary, toast, updateSettings, useApp } from '../store'
 import { Back5Icon, ChevronLeftIcon, Forward5Icon, LibraryIcon, PauseIcon, PlayIcon } from './Icons'
@@ -55,8 +55,26 @@ function Player({ song }: { song: Song }) {
   const speed = usePlayback((p) => p.speed)
   const level = useApp((s) => s.settings.chordLevel)
   const cover = coverUrl(song)
-  const tonic = a.key.tonic + semitones
-  const flats = keyUsesFlats(tonic, a.key.mode)
+  // The key at the playhead: medleys and key changes have several (key_sections).
+  const sections = a.key_sections && a.key_sections.length > 1 ? a.key_sections : null
+  const [sectionIndex, setSectionIndex] = useState(0)
+  useFrame(() => {
+    if (!sections) return
+    const i = sections.indexOf(keySectionAt(sections, playback.time())!)
+    if (i !== sectionIndex) setSectionIndex(i)
+  })
+  const current = sections ? sections[sectionIndex] ?? sections[0] : a.key
+  const tonic = current.tonic + semitones
+  // Each chord is spelled for the key it's in (Bb in D minor, F# in E minor).
+  const flatsAt = (t: number) => {
+    const k = keySectionAt(sections ?? undefined, t) ?? a.key
+    return keyUsesFlats(k.tonic + semitones, k.mode)
+  }
+  const keySub = sections
+    ? `key ${sectionIndex + 1} of ${sections.length}${sections[sectionIndex + 1] ? `, then ${keyName(sections[sectionIndex + 1].tonic + semitones, sections[sectionIndex + 1].mode)} at ${formatTime(sections[sectionIndex + 1].start)}` : ''}`
+    : semitones
+      ? `original ${a.key.name}`
+      : `${Math.round(a.key.confidence * 100)}% confidence`
   const chords = a.chords[level] ?? []
 
   return (
@@ -71,15 +89,15 @@ function Player({ song }: { song: Song }) {
       </div>
 
       <section className="stats">
-        <Stat label="Key" value={transposeKeyName(a.key, semitones)} sub={semitones ? `original ${a.key.name}` : `${Math.round(a.key.confidence * 100)}% confidence`} />
-        <Stat label="Camelot" value={camelot(tonic, a.key.mode)} sub={`relative ${relativeKey(tonic, a.key.mode)}`} />
+        <Stat label="Key" value={keyName(tonic, current.mode)} sub={keySub} />
+        <Stat label="Camelot" value={camelot(tonic, current.mode)} sub={`relative ${relativeKey(tonic, current.mode)}`} />
         <Stat label="Tempo" value={(a.bpm * speed).toFixed(speed === 1 ? 1 : 0)} sub={speed === 1 ? 'BPM' : `BPM (original ${a.bpm})`}>
           <TempoFix song={song} />
         </Stat>
         <Stat label="Tuning" value={`${a.tuning_cents > 0 ? '+' : ''}${Math.round(a.tuning_cents)}`} sub="cents from A440" />
       </section>
 
-      <NowPlaying song={song} chords={chords} semitones={semitones} flats={flats} />
+      <NowPlaying song={song} chords={chords} semitones={semitones} flatsAt={flatsAt} />
 
       <div className="columns">
         <Mixer warning={song.warning} />
@@ -135,7 +153,7 @@ function TempoFix({ song }: { song: Song }) {
 
 const PX_PER_SECOND = 80
 
-function NowPlaying({ song, chords, semitones, flats }: { song: Song; chords: Chord[]; semitones: number; flats: boolean }) {
+function NowPlaying({ song, chords, semitones, flatsAt }: { song: Song; chords: Chord[]; semitones: number; flatsAt: (t: number) => boolean }) {
   const a = song.analysis!
   const playing = usePlayback((p) => p.playing || p.countingIn)
   const loading = usePlayback((p) => p.loading)
@@ -154,7 +172,7 @@ function NowPlaying({ song, chords, semitones, flats }: { song: Song; chords: Ch
   // Re-render the chord labels when the key or detail level changes.
   useEffect(() => {
     last.current.chord = -2
-  }, [chords, semitones, flats])
+  }, [chords, semitones])
 
   useFrame(() => {
     const t = playback.time()
@@ -167,9 +185,9 @@ function NowPlaying({ song, chords, semitones, flats }: { song: Song; chords: Ch
       last.current.chord = i
       trackRef.current?.querySelector('.chord.current')?.classList.remove('current')
       trackRef.current?.querySelector(`[data-index="${i}"]`)?.classList.add('current')
-      if (nowRef.current) nowRef.current.textContent = i >= 0 ? chordLabel(chords[i], semitones, flats) : '–'
+      if (nowRef.current) nowRef.current.textContent = i >= 0 ? chordLabel(chords[i], semitones, flatsAt(chords[i].start)) : '–'
       const next = chords.slice(i + 1).find((c) => c.root !== null)
-      if (nextRef.current) nextRef.current.textContent = next ? chordLabel(next, semitones, flats) : '–'
+      if (nextRef.current) nextRef.current.textContent = next ? chordLabel(next, semitones, flatsAt(next.start)) : '–'
     }
     const b = beatIndexAt(a.beats, t)
     const pos = beatInBar(a.beats, a.downbeats, t)
@@ -254,7 +272,7 @@ function NowPlaying({ song, chords, semitones, flats }: { song: Song; chords: Ch
               onClick={() => playback.seek(c.start)}
               tabIndex={-1}
             >
-              {chordLabel(c, semitones, flats)}
+              {chordLabel(c, semitones, flatsAt(c.start))}
             </button>
           ))}
         </div>

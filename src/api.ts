@@ -24,6 +24,8 @@ export interface SongSummary {
   stems: string[]
   key?: string
   camelot?: string
+  /** Every key in order, when the song changes key. */
+  keys?: string[]
   bpm?: number
   duration?: number
 }
@@ -48,10 +50,23 @@ export interface Chord {
   label: string
 }
 
+/** A stretch of a song in one key (a medley or a key change has several). */
+export interface KeySection {
+  start: number
+  end: number
+  tonic: number
+  mode: 'major' | 'minor'
+  name: string
+  camelot: string
+  flats: boolean
+}
+
 export interface Analysis {
   duration: number
   tuning_cents: number
   key: Key
+  /** The song's keys in order; one covering the whole song when it doesn't change key. */
+  key_sections?: KeySection[]
   bpm: number
   beats: number[]
   downbeats: number[]

@@ -10,17 +10,44 @@ from . import audio, chords, features, key, tempo
 
 
 def chord_levels(y: np.ndarray, sr: int, beats: list[float], detected_key: dict,
-                 tuning: float | None = None) -> dict[str, list[dict]]:
+                 tuning: float | None = None, key_sections: list[dict] | None = None,
+                 pitch: dict | None = None) -> dict[str, list[dict]]:
     """Chords at every detail level from ``y``: the mix, or better its harmonic stems."""
     fps = sr / features.HOP
-    pitch = features.pitch_features(y, sr, tuning)
+    pitch = pitch or features.pitch_features(y, sr, tuning)
     chroma = features.clean_chroma(pitch["chroma"], fps)
     bass = features.clean_chroma(pitch["bass"], fps)
     beat_frames = np.round(np.asarray(beats) * fps).astype(int)
+    sections = key_sections if key_sections and len(key_sections) > 1 else None
     return {
-        level: chords.recognize(chroma, bass, beat_frames, fps, level=level, key=detected_key)
+        level: chords.recognize(chroma, bass, beat_frames, fps, level=level, key=detected_key, key_sections=sections)
         for level in chords.LEVELS
     }
+
+
+def plain_chords(pitch: dict, sr: int, beats: list[float], detected_key: dict) -> list[dict]:
+    """Bare triads (no colour notes, no foreign-bass rule), the steadiest reading for judging the key."""
+    fps = sr / features.HOP
+    chroma = features.clean_chroma(pitch["chroma"], fps)
+    bass = features.clean_chroma(pitch["bass"], fps)
+    beat_frames = np.round(np.asarray(beats) * fps).astype(int)
+    return chords.recognize(chroma, bass, beat_frames, fps, level="basic", key=detected_key, plain=True)
+
+
+def settle_key(pitch: dict, sr: int, beats: list[float], first_key: dict, duration: float) -> tuple[dict, list, dict]:
+    """The key from the chords, the key sections, and the chords read in them: (key, sections, levels).
+
+    The key and its sections are judged on plain triads; the chords people see are read with
+    colour notes and the bass taken into account, in the key (or keys) found.
+    """
+    fps = sr / features.HOP
+    triads = plain_chords(pitch, sr, beats, first_key)
+    refined = key.refine_with_chords(first_key, triads)
+    if refined["name"] != first_key["name"]:
+        triads = plain_chords(pitch, sr, beats, refined)
+    sections = key.find_key_sections(pitch["chroma"], fps, triads, refined, duration)
+    levels = chord_levels(np.zeros(0), sr, beats, refined, key_sections=sections, pitch=pitch)
+    return refined, sections, levels
 
 
 # Switching the bar's phase costs as much as this many chord changes off the downbeat, so it
@@ -97,15 +124,13 @@ def analyze_signal(y: np.ndarray, sr: int = audio.ANALYSIS_SR) -> dict:
     rhythm = tempo.analyze_rhythm(onset, bass_onset, fps)
 
     detected = key.detect_key(pitch["chroma"])
-    levels = chord_levels(y, sr, rhythm["beats"], detected, pitch["tuning"])
-    refined = key.refine_with_chords(detected, levels["basic"])
-    if refined["name"] != detected["name"]:
-        levels = chord_levels(y, sr, rhythm["beats"], refined, pitch["tuning"])
+    refined, sections, levels = settle_key(pitch, sr, rhythm["beats"], detected, y.size / sr)
     rhythm["downbeats"] = downbeats_from_chords(rhythm["beats"], levels["basic"], rhythm["downbeats"])
     return {
         "duration": round(y.size / sr, 3),
         "tuning_cents": round(100.0 * pitch["tuning"], 1),
         "key": refined,
+        "key_sections": sections,
         **rhythm,
         "chords": levels,
         "waveform": audio.waveform_peaks(y),
@@ -140,15 +165,26 @@ def improve_with_stems(result: dict, stems: dict[str, np.ndarray], sr: int) -> d
 
     Returns ``result`` unchanged when there are no harmonic stems (vocals and accompaniment only).
     """
-    levels = chords_from_stems(result, stems, sr)
-    if levels is None:
+    harmonic = harmonic_signal(stems, sr)
+    if harmonic is None:
         return result
-    refined = key.refine_with_chords(result["key"], levels["basic"])
-    if refined["name"] != result["key"]["name"]:
-        # Spell and weigh the chords for the key they turned out to be in.
-        levels = chords_from_stems({**result, "key": refined}, stems, sr)
+    pitch = features.pitch_features(harmonic, audio.ANALYSIS_SR, result["tuning_cents"] / 100.0)
+    refined, sections, levels = settle_key(pitch, audio.ANALYSIS_SR, result["beats"], result["key"], result["duration"])
     downbeats = downbeats_from_chords(result["beats"], levels["basic"], result["downbeats"])
-    return {**result, "key": refined, "chords": levels, "downbeats": downbeats}
+    return {**result, "key": refined, "key_sections": sections, "chords": levels, "downbeats": downbeats}
+
+
+def harmonic_signal(stems: dict[str, np.ndarray], sr: int) -> np.ndarray | None:
+    """Everything but vocals and drums, mono at the analysis rate; None without harmonic stems."""
+    parts = [stems[name] for name in stems if name not in ("vocals", "drums", "accompaniment")]
+    if not parts:
+        return None
+    harmonic = np.sum([np.atleast_2d(p).mean(axis=0) for p in parts], axis=0)
+    if sr != audio.ANALYSIS_SR:
+        from scipy.signal import resample_poly
+
+        harmonic = resample_poly(harmonic, audio.ANALYSIS_SR, sr)
+    return harmonic.astype(np.float32)
 
 
 def chords_from_stems(result: dict, stems: dict[str, np.ndarray], sr: int) -> dict[str, list[dict]] | None:
@@ -158,16 +194,12 @@ def chords_from_stems(result: dict, stems: dict[str, np.ndarray], sr: int) -> di
     in the full mix. Returns None when the separation has no harmonic stems (vocals and
     accompaniment only).
     """
-    parts = [stems[name] for name in stems if name not in ("vocals", "drums", "accompaniment")]
-    if not parts:
+    harmonic = harmonic_signal(stems, sr)
+    if harmonic is None:
         return None
-    harmonic = np.sum([np.atleast_2d(p).mean(axis=0) for p in parts], axis=0)
-    if sr != audio.ANALYSIS_SR:
-        from scipy.signal import resample_poly
-
-        harmonic = resample_poly(harmonic, audio.ANALYSIS_SR, sr).astype(np.float32)
     tuning = result["tuning_cents"] / 100.0
-    return chord_levels(harmonic, audio.ANALYSIS_SR, result["beats"], result["key"], tuning)
+    return chord_levels(harmonic, audio.ANALYSIS_SR, result["beats"], result["key"], tuning,
+                        key_sections=result.get("key_sections"))
 
 
 def analyze_file(path: str | Path) -> dict:

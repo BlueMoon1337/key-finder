@@ -87,6 +87,9 @@ class JobStore:
         if result:
             out.update(key=result["key"]["name"], camelot=result["key"]["camelot"],
                        bpm=result["bpm"], duration=result["duration"])
+            sections = result.get("key_sections") or []
+            if len(sections) > 1:
+                out["keys"] = [s["name"] for s in sections]
         return out
 
     def delete(self, song_id: str) -> None:

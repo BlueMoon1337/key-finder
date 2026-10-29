@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { beatIndexAt, beatInBar, camelot, chordIndexAt, chordLabel, formatTime, keyName, keySortValue, keyUsesFlats, relativeKey } from './music'
+import { beatIndexAt, beatInBar, camelot, keySectionAt, chordIndexAt, chordLabel, formatTime, keyName, keySortValue, keyUsesFlats, relativeKey } from './music'
 
 describe('keys', () => {
   it('names keys with conventional spellings', () => {
@@ -76,6 +76,19 @@ describe('chords', () => {
     expect(beatInBar(beats, downbeats, 10)).toBe(0)
     expect(beatInBar(beats, downbeats, 11.2)).toBe(1)
     expect(beatInBar(beats, downbeats, -1)).toBe(-1)
+  })
+
+  it('finds the key section at a time', () => {
+    const sections = [
+      { start: 0, end: 160, name: 'D minor' },
+      { start: 160, end: 245, name: 'C minor' },
+      { start: 245, end: 485, name: 'E minor' },
+    ]
+    expect(keySectionAt(sections, 10)?.name).toBe('D minor')
+    expect(keySectionAt(sections, 160)?.name).toBe('C minor')
+    expect(keySectionAt(sections, 999)?.name).toBe('E minor')
+    expect(keySectionAt([], 3)).toBeNull()
+    expect(keySectionAt(undefined, 3)).toBeNull()
   })
 
   it('formats times', () => {

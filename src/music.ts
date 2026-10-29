@@ -56,6 +56,13 @@ export function transposeKeyName(key: Pick<Key, 'tonic' | 'mode'>, shift: number
   return keyName(key.tonic + shift, key.mode)
 }
 
+/** The key section playing at `t` (the first or last one outside them); null without sections. */
+export function keySectionAt<T extends { start: number; end: number }>(sections: T[] | undefined, t: number): T | null {
+  if (!sections?.length) return null
+  for (const s of sections) if (t >= s.start && t < s.end) return s
+  return t < sections[0].start ? sections[0] : sections[sections.length - 1]
+}
+
 /** Index of the chord playing at `t`, or -1 (binary search; chords are in order and contiguous). */
 export function chordIndexAt(chords: Chord[], t: number) {
   let lo = 0

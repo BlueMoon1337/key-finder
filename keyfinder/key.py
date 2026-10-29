@@ -180,3 +180,114 @@ def refine_with_chords(key: dict, segments: list[dict]) -> dict:
         "flats": uses_flats(tonic, mode),
     })
     return refined
+
+
+# Key sections (medleys and key changes): windows this long, this far apart, are each scored like
+# a whole song; changing key costs KEY_CHANGE_COST, and sections shorter than MIN_KEY_SECTION are
+# merged into a neighbour.
+KEY_WINDOW = 20.0
+KEY_HOP = 5.0
+KEY_CHANGE_COST = 1.5
+MIN_KEY_SECTION = 30.0
+
+
+def _section(tonic: int, mode: str, start: float, end: float) -> dict:
+    return {"start": round(start, 3), "end": round(end, 3), "tonic": tonic, "mode": mode,
+            "name": key_name(tonic, mode), "camelot": camelot(tonic, mode), "flats": uses_flats(tonic, mode)}
+
+
+def find_key_sections(chroma: np.ndarray, fps: float, segments: list[dict], key: dict, duration: float) -> list[dict]:
+    """The song split where its key changes: ``[{start, end, tonic, mode, name, camelot, flats}]``.
+
+    Each window is scored over all 24 keys like a whole song (refine_with_chords: pitch profile,
+    relative keys sharing it, plus how the window's chords fit each key). A Viterbi pass picks a
+    key per window, paying KEY_CHANGE_COST to change, so a passing chord or a short bridge in
+    another key doesn't split the song. One section covering everything when nothing changes.
+    """
+    whole = [_section(key["tonic"], key["mode"], 0.0, duration)]
+    starts = np.arange(0.0, max(duration - KEY_WINDOW, 0.0) + 1e-9, KEY_HOP)
+    if duration < 2 * MIN_KEY_SECTION or len(starts) < 3:
+        return whole
+    keys = [(t, m) for m in ("major", "minor") for t in range(12)]
+    chords = [s for s in segments if s.get("root") is not None]
+    scores = np.zeros((len(starts), len(keys)))
+    for w, start in enumerate(starts):
+        end = start + KEY_WINDOW
+        frames = chroma[:, int(start * fps):int(end * fps)]
+        if frames.shape[1] == 0:
+            continue
+        profile = key_scores(global_profile(frames))
+        durations: dict[tuple[int, str], float] = {}
+        for seg in chords:
+            overlap = min(seg["end"], end) - max(seg["start"], start)
+            if overlap > 0:
+                triad = (seg["root"], _TRIAD.get(seg["quality"], seg["quality"]))
+                durations[triad] = durations.get(triad, 0.0) + overlap
+        for j, (tonic, mode) in enumerate(keys):
+            rel_tonic, rel_mode = relative_key(tonic, mode)
+            p = max(profile[0 if mode == "major" else 1, tonic], profile[0 if rel_mode == "major" else 1, rel_tonic])
+            scores[w, j] = p + KEY_CHORD_WEIGHT * chord_fit(durations, tonic, mode)
+
+    # Viterbi: maximise the score, paying for each change of key.
+    n, k = scores.shape
+    total = scores[0].copy()
+    back = np.zeros((n, k), dtype=int)
+    change = KEY_CHANGE_COST * (1 - np.eye(k))
+    for w in range(1, n):
+        cand = total[:, None] - change
+        back[w] = cand.argmax(axis=0)
+        total = cand[back[w], np.arange(k)] + scores[w]
+    path = np.zeros(n, dtype=int)
+    path[-1] = int(total.argmax())
+    for w in range(n - 1, 0, -1):
+        path[w - 1] = back[w, path[w]]
+
+    # Windows -> sections; a change sits in the middle of the overlap between windows.
+    runs: list[list] = []
+    for w, j in enumerate(path):
+        if runs and runs[-1][0] == j:
+            runs[-1][2] = w
+        else:
+            runs.append([int(j), w, w])
+    bounds = [0.0] + [starts[r[1]] + KEY_WINDOW / 2 - KEY_HOP / 2 for r in runs[1:]] + [duration]
+    sections = [[runs[i][0], bounds[i], bounds[i + 1]] for i in range(len(runs))]
+    # Merge sections too short to be a real key change into the neighbour that fits them better.
+    while len(sections) > 1:
+        shortest = min(range(len(sections)), key=lambda i: sections[i][2] - sections[i][1])
+        if sections[shortest][2] - sections[shortest][1] >= MIN_KEY_SECTION:
+            break
+        i = shortest
+        neighbours = [x for x in (i - 1, i + 1) if 0 <= x < len(sections)]
+        window_ids = [w for w, s in enumerate(starts) if sections[i][1] <= s + KEY_WINDOW / 2 < sections[i][2]] or [0]
+        best = max(neighbours, key=lambda x: scores[window_ids, sections[x][0]].sum())
+        if best < i:
+            sections[best][2] = sections[i][2]
+        else:
+            sections[best][1] = sections[i][1]
+        del sections[i]
+        # Neighbours left in the same key join up.
+        merged = [sections[0]]
+        for sec in sections[1:]:
+            if sec[0] == merged[-1][0]:
+                merged[-1][2] = sec[2]
+            else:
+                merged.append(sec)
+        sections = merged
+    # A "change" to the relative key (same notes, e.g. a verse leaning on G inside an E minor
+    # section) isn't a key change: merge it into whichever of the two lasts longer.
+    i = 0
+    while i + 1 < len(sections):
+        a, b = sections[i], sections[i + 1]
+        if relative_key(*keys[a[0]]) == keys[b[0]]:
+            longer = a[0] if a[2] - a[1] >= b[2] - b[1] else b[0]
+            sections[i] = [longer, a[1], b[2]]
+            del sections[i + 1]
+            if i and sections[i - 1][0] == longer:  # rejoin a section the same key as the one before
+                sections[i - 1][2] = sections[i][2]
+                del sections[i]
+                i -= 1
+        else:
+            i += 1
+    if len(sections) == 1:
+        return whole
+    return [_section(*keys[j], start, end) for j, start, end in sections]
