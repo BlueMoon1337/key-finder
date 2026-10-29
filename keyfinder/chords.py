@@ -29,6 +29,8 @@ LEVELS = {
 SUFFIX = {"maj": "", "min": "m", "7": "7", "maj7": "maj7", "min7": "m7",
           "dim": "dim", "aug": "aug", "sus2": "sus2", "sus4": "sus4"}
 NO_CHORD = "N"
+# How much a bass note outside the chord counts against it.
+FOREIGN_BASS_PENALTY = 0.3
 # How much a bass note matching the root counts towards a chord.
 BASS_WEIGHT = 0.2
 # How well a chord must match before "no chord" (N) is preferred, outside silences.
@@ -59,10 +61,22 @@ def _vocabulary(level: str) -> list[tuple[int, str]]:
     return [(root, q) for q in LEVELS[level] for root in range(12)]
 
 
-def _templates(vocab: list[tuple[int, str]]) -> np.ndarray:
+# Colour notes players add without changing the chord's name (a 7th or 9th in worship and pop
+# voicings): weighted at this share in a chord's template instead of counting against it.
+COLOR_WEIGHT = 0.4
+# The 9th never changes a chord's name here; 7ths only where the level can't name 7th chords
+# (at the others a sounding 7th should make it a 7th chord).
+COLOR_TONES = {"maj": (2,), "min": (2,), "7": (2,), "maj7": (2,), "min7": (2,)}
+BASIC_COLOR_TONES = {"maj": (11, 10, 2), "min": (10, 2)}
+
+
+def _templates(vocab: list[tuple[int, str]], level: str = "intermediate") -> np.ndarray:
+    colors = BASIC_COLOR_TONES if level == "basic" else COLOR_TONES
     t = np.zeros((len(vocab), 12))
     for i, (root, quality) in enumerate(vocab):
         intervals = QUALITIES[quality][0]
+        for interval in colors.get(quality, ()) if COLOR_WEIGHT else ():
+            t[i, (root + interval) % 12] = COLOR_WEIGHT
         for k, interval in enumerate(intervals):
             # Root and fifth carry the most energy in real recordings.
             t[i, (root + interval) % 12] = {0: 1.0, 7: 0.9}.get(interval, 0.8 if k < 3 else 0.6)
@@ -125,7 +139,7 @@ def recognize(
     seg_bass, _ = sync_to_beats(bass, beat_frames, n_frames)
 
     vocab = _vocabulary(level)
-    templates = _templates(vocab)
+    templates = _templates(vocab, level)
     energy = seg_chroma.sum(axis=0)
     norm = seg_chroma / np.maximum(np.linalg.norm(seg_chroma, axis=0, keepdims=True), 1e-9)
     similarity = templates @ norm  # (chords, segments)
@@ -139,6 +153,12 @@ def recognize(
     others = [[(r + i) % 12 for i in QUALITIES[q][0][1:3]] for r, q in vocab]
     inversion = np.stack([bass_norm[o].max(axis=0) for o in others])
     similarity += BASS_WEIGHT * np.maximum(bass_norm[roots], INVERSION_SHARE * inversion)
+    # A strong bass note that isn't in the chord at all usually means another chord: C-Eb-G
+    # over an Ab bass is Abmaj7 (what a chart writes as Ab), not Cm.
+    tones = np.zeros((len(vocab), 12))
+    for i, (r, q) in enumerate(vocab):
+        tones[i, list(chord_pitch_classes(r, q))] = 1.0
+    similarity -= FOREIGN_BASS_PENALTY * ((1.0 - tones) @ bass_norm)
     if key is not None:
         similarity += key_prior(vocab, key)[:, None]
 

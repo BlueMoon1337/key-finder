@@ -181,3 +181,22 @@ def test_open_fifth_on_the_dominant_reads_major_in_minor():
     result = analyze_signal(y / np.abs(y).max(), SR)
     assert result["key"]["name"] == "D minor"
     assert labels(result["chords"]["basic"])[:4] == ["Dm", "C", "Bb", "A"]
+
+
+def test_triad_over_a_foreign_bass_is_named_after_the_bass():
+    # Cm - Ab - Bb - G where the "Ab" is played as C-Eb-G over an Ab bass (Abmaj7), as in
+    # "Yo Venceré": a chart writes Ab; reading the upper notes alone gives Cm.
+    from synth import tone
+
+    beat = 60 / 100
+    bars = [((60, 63, 67), 36), ((60, 63, 67, 70), 32), ((58, 62, 65), 34), ((55, 59, 62), 31)]
+    y = np.zeros(int(48 * beat * SR + SR), dtype=np.float32)
+    for b in range(48):
+        upper, bass = bars[(b // 4) % 4]
+        s = int(b * beat * SR)
+        note = sum(0.25 * tone(m, beat) for m in upper) + 0.5 * tone(bass, beat, harmonics=3)
+        y[s:s + note.size] += note
+    result = analyze_signal(y / np.abs(y).max(), SR)
+    assert result["key"]["name"] == "C minor"
+    assert labels(result["chords"]["basic"])[:4] == ["Cm", "Ab", "Bb", "G"]
+    assert labels(result["chords"]["intermediate"])[1].startswith("Abmaj7")
