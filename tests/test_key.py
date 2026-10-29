@@ -94,3 +94,21 @@ def test_one_key_song_has_one_section():
     result = analyze_signal(progression([(0, "maj"), (7, "maj"), (9, "min"), (5, "maj")], bpm=120, repeats=8), SR)
     assert [s["name"] for s in result["key_sections"]] == ["C major"]
     assert result["key_sections"][0]["start"] == 0 and result["key_sections"][0]["end"] == result["duration"]
+
+
+def test_song_that_changes_key_is_labelled_with_its_first_key():
+    from synth import tone
+
+    from keyfinder.analysis import settle_key  # noqa: F401  (the rule lives there)
+
+    beat = 0.5
+    y = np.zeros(int(256 * beat * SR + SR), dtype=np.float32)
+    for b in range(256):
+        tonic = 2 if b < 128 else 4  # D major, then E major
+        root = tonic + (0, 5, 7, 0)[(b // 4) % 4]
+        s = int(b * beat * SR)
+        note = sum(0.25 * tone(60 + root + i, beat) for i in (0, 4, 7)) + 0.4 * tone(36 + root, beat, harmonics=3)
+        y[s:s + note.size] += note
+    result = analyze_signal(y / np.abs(y).max(), SR)
+    assert [s["name"] for s in result["key_sections"]] == ["D major", "E major"]
+    assert result["key"]["name"] == "D major"

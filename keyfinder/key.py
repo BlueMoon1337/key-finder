@@ -168,10 +168,14 @@ def refine_with_chords(key: dict, segments: list[dict]) -> dict:
     best = max(((tonic, mode) for mode in ("major", "minor") for tonic in range(12)), key=lambda k: total(*k))
     if best == (key["tonic"], key["mode"]):
         return key
-    tonic, mode = best
+    return with_key(key, *best)
+
+
+def with_key(key: dict, tonic: int, mode: str) -> dict:
+    """``key`` (a detect_key result) moved to another tonic and mode, its evidence kept."""
     rel_tonic, rel_mode = relative_key(tonic, mode)
-    refined = dict(key)
-    refined.update({
+    moved = dict(key)
+    moved.update({
         "tonic": tonic,
         "mode": mode,
         "name": key_name(tonic, mode),
@@ -179,7 +183,7 @@ def refine_with_chords(key: dict, segments: list[dict]) -> dict:
         "relative": key_name(rel_tonic, rel_mode),
         "flats": uses_flats(tonic, mode),
     })
-    return refined
+    return moved
 
 
 # Key sections (medleys and key changes): windows this long, this far apart, are each scored like

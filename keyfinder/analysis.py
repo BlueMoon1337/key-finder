@@ -46,6 +46,10 @@ def settle_key(pitch: dict, sr: int, beats: list[float], first_key: dict, durati
     if refined["name"] != first_key["name"]:
         triads = plain_chords(pitch, sr, beats, refined)
     sections = key.find_key_sections(pitch["chroma"], fps, triads, refined, duration)
+    if len(sections) > 1:
+        # A song that changes key is labelled with the key it starts in (as charts do); the
+        # whole-song estimate can land on a key that none of its sections is in.
+        refined = key.with_key(refined, sections[0]["tonic"], sections[0]["mode"])
     levels = chord_levels(np.zeros(0), sr, beats, refined, key_sections=sections, pitch=pitch)
     return refined, sections, levels
 
