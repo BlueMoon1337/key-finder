@@ -79,6 +79,28 @@ def sync_to_beats(features: np.ndarray, beat_frames: np.ndarray, n_frames: int) 
     return segments, bounds
 
 
+IN_KEY_BONUS = 0.05
+
+
+def key_prior(vocab: list[tuple[int, str]], key: dict) -> np.ndarray:
+    """A small bonus for chords that belong to the key.
+
+    In a minor key the chord on the fifth is usually major (A or A7 in D minor, from the
+    harmonic minor scale), so it gets the full bonus; the natural-minor v (Am) gets half,
+    for modal songs. Without this, a fifth chord with no third (A and E only) reads as Am.
+    """
+    tonic, mode = key["tonic"], key["mode"]
+    diatonic = scale_pitch_classes(tonic, mode)
+    dominant = (tonic + 7) % 12
+    bonus = np.zeros(len(vocab))
+    for i, (root, quality) in enumerate(vocab):
+        if mode == "minor" and root == dominant:
+            bonus[i] = IN_KEY_BONUS if quality in ("maj", "7") else IN_KEY_BONUS / 2 * (quality in ("min", "min7"))
+        elif chord_pitch_classes(root, quality) <= diatonic:
+            bonus[i] = IN_KEY_BONUS
+    return bonus
+
+
 def recognize(
     chroma: np.ndarray,
     bass: np.ndarray,
@@ -118,9 +140,7 @@ def recognize(
     inversion = np.stack([bass_norm[o].max(axis=0) for o in others])
     similarity += BASS_WEIGHT * np.maximum(bass_norm[roots], INVERSION_SHARE * inversion)
     if key is not None:
-        diatonic = scale_pitch_classes(key["tonic"], key["mode"])
-        in_key = np.array([chord_pitch_classes(r, q) <= diatonic for r, q in vocab])
-        similarity += 0.05 * in_key[:, None]
+        similarity += key_prior(vocab, key)[:, None]
 
     # "No chord" for real silences. A short rest (a stop, a gap between hits) carries no evidence
     # either way, so the smoothing below carries the chord over it, as a chord chart would.

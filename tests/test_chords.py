@@ -154,3 +154,30 @@ def test_minor_key_with_major_dominant_from_chords():
     improved = improve_with_stems(result, {"bass": y, "other": y}, SR)
     assert improved["key"]["name"] == "D minor"
     assert "Bb" in labels(improved["chords"]["basic"]) and "A#" not in labels(improved["chords"]["basic"])
+
+
+def test_minor_key_prior_prefers_a_major_dominant():
+    vocab = chords._vocabulary("basic")
+    prior = dict(zip(vocab, chords.key_prior(vocab, {"tonic": 2, "mode": "minor"}), strict=True))
+    assert prior[(9, "maj")] == chords.IN_KEY_BONUS  # A in D minor (harmonic minor)
+    assert prior[(9, "min")] == chords.IN_KEY_BONUS / 2  # Am (natural minor), for modal songs
+    assert prior[(2, "min")] == chords.IN_KEY_BONUS and prior[(1, "maj")] == 0
+    major = dict(zip(vocab, chords.key_prior(vocab, {"tonic": 0, "mode": "major"}), strict=True))
+    assert major[(7, "maj")] == chords.IN_KEY_BONUS and major[(7, "min")] == 0
+
+
+def test_open_fifth_on_the_dominant_reads_major_in_minor():
+    # Dm - C - Bb - A5 (A and E only, as in "Carros de Faraón"): the chart says A, not Am.
+    from synth import tone
+
+    beat = 60 / 120
+    prog = [(62, (0, 3, 7)), (60, (0, 4, 7)), (58, (0, 4, 7)), (57, (0, 7, 12))]
+    y = np.zeros(int(48 * beat * SR + SR), dtype=np.float32)
+    for b in range(48):
+        root, ivs = prog[(b // 4) % 4]
+        s = int(b * beat * SR)
+        note = sum(0.25 * tone(root + i, beat) for i in ivs) + 0.4 * tone(root - 24, beat, harmonics=3)
+        y[s:s + note.size] += note
+    result = analyze_signal(y / np.abs(y).max(), SR)
+    assert result["key"]["name"] == "D minor"
+    assert labels(result["chords"]["basic"])[:4] == ["Dm", "C", "Bb", "A"]
