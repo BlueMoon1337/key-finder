@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "keyfinder"
+version = "0.1.0"
+description = "Practice tool for musicians: key, tempo and chord detection, stem separation, pitch and speed control"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+# Neural stem separation (Hybrid Transformer Demucs). Large download: pulls in PyTorch.
+ml = ["demucs>=4.0"]
+dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.5"]
+
+[project.scripts]
+keyfinder = "keyfinder.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["keyfinder*"]
+
+[tool.setuptools.package-data]
+keyfinder = ["static/*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+# FastAPI declares parameters with File()/Form()/Query() defaults by design.
+ignore = ["B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
