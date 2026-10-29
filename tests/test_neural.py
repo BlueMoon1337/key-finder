@@ -135,3 +135,27 @@ def test_download_endpoint(client):
 def test_backend_choice_prefers_demucs():
     assert separation.choose_backend("auto", "6stems") == "demucs"
     assert "demucs" in separation.available_backends()
+
+
+def test_hub_error_is_reported_when_both_sources_fail(monkeypatch):
+    import demucs.hf
+    import demucs.repo
+
+    def hub_down(name):
+        raise ConnectionError("hub unreachable")
+
+    def legacy_down(self, sig):
+        raise OSError("legacy server unreachable")
+
+    monkeypatch.setenv("KEYFINDER_DEMUCS_MODEL", "htdemucs")
+    monkeypatch.setattr(demucs.hf, "get_hf_model", hub_down)
+    monkeypatch.setattr(demucs.repo.RemoteRepo, "get_model", legacy_down)
+    with pytest.raises(neural.ModelUnavailable, match="hub unreachable"):
+        neural.load("htdemucs")
+    assert not neural.is_downloaded("htdemucs")
+
+
+def test_xet_client_is_off():
+    import os
+
+    assert os.environ.get("HF_HUB_DISABLE_XET") == "1"

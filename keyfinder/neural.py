@@ -57,6 +57,9 @@ def configure(models_dir: Path) -> None:
     _models_dir = Path(models_dir)
     _models_dir.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("HF_HOME", str(_models_dir / "huggingface"))
+    # Plain HTTPS downloads from the hub's CDN rather than its Xet client: the files are small
+    # enough not to need it, and when the network is blocked Xet retries for minutes before failing.
+    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 
 def model_for(mode: str) -> str:
@@ -108,14 +111,12 @@ def load(name: str, on_download: Callable[[], None] | None = None):
             return _cache[name]
         if on_download and not is_downloaded(name):
             on_download()
-        from demucs.pretrained import get_model
-
         try:
-            model = get_model(name)
+            model = _fetch(name)
         except Exception as exc:  # network errors, a hub outage, a missing model
             raise ModelUnavailable(
-                f"Couldn’t download the Demucs model “{name}”. Connect to the internet and try again; "
-                f"it’s downloaded only once. ({type(exc).__name__}: {str(exc)[:200]})"
+                f"Couldn’t download the Demucs model “{name}” from Hugging Face. Connect to the internet and "
+                f"try again; it’s downloaded only once. ({type(exc).__name__}: {str(exc)[:200]})"
             ) from exc
         model.to(device())
         model.eval()
@@ -124,6 +125,29 @@ def load(name: str, on_download: Callable[[], None] | None = None):
         if marker:
             marker.write_text("ok\n")
         return model
+
+
+def _fetch(name: str):
+    """Load from the Hugging Face hub, where Demucs' models live now; Meta's old server is the fallback.
+
+    If both fail, the hub's error is the one worth reporting.
+    """
+    from demucs.pretrained import get_model
+
+    if name == "demucs_unittest":  # Demucs' built-in test model: nothing to download
+        return get_model(name)
+    from demucs.hf import get_hf_model
+
+    try:
+        return get_hf_model(name)
+    except Exception as hub_error:
+        try:
+            from demucs.pretrained import REMOTE_ROOT, AnyModelRepo, BagOnlyRepo, RemoteRepo, _parse_remote_files
+
+            remote = RemoteRepo(_parse_remote_files(REMOTE_ROOT / "files.txt"))
+            return AnyModelRepo(remote, BagOnlyRepo(REMOTE_ROOT, remote)).get_model(name)
+        except Exception:
+            raise hub_error from None
 
 
 def download(name: str) -> None:
