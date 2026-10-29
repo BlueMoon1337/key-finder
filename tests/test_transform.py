@@ -35,12 +35,18 @@ def test_speed_changes_duration_not_pitch(a440, tmp_path):
     assert dominant_freq(y[SR: 3 * SR], SR) == pytest.approx(440, rel=0.02)
 
 
-def test_fallback_filter_chain():
-    flt = transform._atempo_chain(0.2)
-    assert flt[:2] == ["atempo=0.5", "atempo=0.5"]
+def test_filter_chain():
+    assert transform._atempo_chain(0.2)[:2] == [("atempo", "0.5"), ("atempo", "0.5")]
     with pytest.raises(ValueError):
-        transform.pitch_tempo_filter(13)
-    assert transform.pitch_tempo_filter(0, 1.0) is None
+        transform.pitch_tempo_filters(13)
+    assert transform.pitch_tempo_filters(0, 1.0) == []
+
+
+def test_pyav_path_without_rubberband(monkeypatch, a440, tmp_path):
+    monkeypatch.setattr(transform, "rubberband_ffmpeg", lambda: None)
+    out = transform.render(a440, tmp_path / "up.wav", semitones=2)
+    y = audio.load(out, SR)
+    assert dominant_freq(y[SR // 2: SR + SR // 2], SR) == pytest.approx(440 * 2 ** (2 / 12), rel=0.02)
 
 
 def test_mixdown_respects_volumes(tmp_path):

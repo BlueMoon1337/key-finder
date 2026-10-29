@@ -1,0 +1,46 @@
+appId: com.bluemoon1337.keyfinder
+productName: KeyFinder
+copyright: Copyright © 2026 BlueMoon1337
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**
+  - dist-electron/**
+  - "!dist-electron/*.map"
+  - package.json
+asar: true
+# The frozen Python engine (npm run engine), next to the app as resources/engine.
+extraResources:
+  - from: build/engine-dist/keyfinder-engine
+    to: engine
+    filter: ["**/*"]
+
+fileAssociations:
+  - ext: [mp3, wav, flac, m4a, aac, aif, aiff, ogg, wma]
+    name: Audio
+    role: Viewer
+    rank: Alternate
+
+mac:
+  category: public.app-category.music
+  # Ad-hoc signed (no Apple Developer ID), as Player: without a signature at all, Apple silicon
+  # Macs report the app as damaged. The hardened runtime is only needed for notarization.
+  identity: "-"
+  hardenedRuntime: false
+  # One build per processor: the engine inside is native code (npm run dist:mac -- --arm64 / --x64).
+  artifactName: KeyFinder-${version}-${arch}-mac.${ext}
+  target:
+    - dmg
+    # What the Update button downloads and unpacks.
+    - zip
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+nsis:
+  # No spaces: GitHub renames release files with spaces, and the updater looks them up by name.
+  artifactName: KeyFinder-Setup-${version}.${ext}
+  oneClick: false
+  allowToChangeInstallationDirectory: true

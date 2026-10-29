@@ -3,9 +3,14 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
-build/
+build/engine-*/
 dist/
 .pytest_cache/
 .ruff_cache/
 data/
 stems/
+node_modules/
+dist-electron/
+release/
+*.log
+.DS_Store

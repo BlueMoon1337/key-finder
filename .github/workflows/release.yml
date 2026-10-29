@@ -1,0 +1,141 @@
+# Builds KeyFinder for macOS (Apple silicon and Intel, one app each: the analysis engine inside is
+# native code) and Windows, signs the update files, and publishes them as a GitHub release that
+# KeyFinder's Update button installs from. Adapted from Player's release workflow.
+#
+# Runs by itself when a push to main changes package.json (or this file) and its version hasn't
+# been released yet; also when a version tag (v0.3.0) is pushed, or by hand from the Actions tab
+# ("Run workflow"). To release, raise "version" in package.json (and pyproject.toml): KeyFinder
+# only offers a release newer than itself, and a published version can't be reused.
+#
+# Needs one repository secret, UPDATE_SIGNING_KEY: the Ed25519 private key whose public half is
+# electron/update-key.pem. It's the same key pair as Player's, so Player's secret value works here.
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths: [package.json, .github/workflows/release.yml]
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      id: ${{ steps.release.outputs.id }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: release
+        name: Make a draft release, with the changes since the last one as its notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HAS_KEY: ${{ secrets.UPDATE_SIGNING_KEY != '' }}
+        run: |
+          tag="v$(node -p "require('./package.json').version")"
+          if [ "$HAS_KEY" != "true" ]; then
+            echo "::warning::UPDATE_SIGNING_KEY isn't set, so nothing was released. Add it (README ▸ Releases), then run this workflow again."
+            exit 0
+          fi
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "$tag" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} doesn't match package.json's version ($tag)."
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" >/dev/null 2>&1; then
+            if [ "${GITHUB_REF_TYPE}" = "branch" ] && [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+              echo "::notice::$tag is already released; nothing to do."
+              exit 0
+            fi
+            echo "::error::$tag is already published. Raise the version in package.json."
+            exit 1
+          fi
+          id="$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq ".[] | select(.draft and .tag_name == \"$tag\") | .id" | head -n 1)"
+          if [ -z "$id" ]; then
+            previous="$(git tag --list 'v*' --sort=-v:refname | grep -vx "$tag" | head -n 1 || true)"
+            git log --no-merges --pretty='- %s' ${previous:+$previous..}HEAD > notes.md
+            id="$(gh api "repos/$GITHUB_REPOSITORY/releases" -f tag_name="$tag" -f target_commitish="$GITHUB_SHA" \
+              -f name="KeyFinder $tag" -F draft=true -F body=@notes.md --jq .id)"
+          fi
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: release
+    if: needs.release.outputs.id != ''
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest # Apple silicon
+            platform: darwin-arm64
+            dist: npm run dist:mac -- --arm64
+          # Intel Macs. Remove this entry to ship Apple silicon only.
+          - os: macos-15-intel
+            platform: darwin-x64
+            dist: npm run dist:mac -- --x64
+          - os: windows-latest
+            platform: win32-x64
+            dist: npm run dist:win
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: npm ci
+      - name: Freeze the analysis engine
+        run: |
+          python -m pip install -e ".[desktop]"
+          npm run engine
+        env:
+          PYTHON: python
+      - run: ${{ matrix.dist }}
+        env:
+          # No Apple / Windows certificates: macOS builds are ad-hoc signed (electron-builder.yml).
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Sign the update file
+        run: node scripts/release.mjs sign ${{ matrix.platform }}
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+      - name: Add the installers to the draft release
+        run: node scripts/release.mjs upload
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ needs.release.outputs.id }}
+      - uses: actions/upload-artifact@v5
+        with:
+          name: signed-${{ matrix.platform }}
+          path: release/update-${{ matrix.platform }}.json
+
+  publish:
+    needs: [release, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v5
+        with:
+          path: signed
+      - name: Add latest.json and publish the release
+        run: node scripts/release.mjs publish signed
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ needs.release.outputs.id }}
+          TAG: ${{ needs.release.outputs.tag }}

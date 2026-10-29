@@ -1,0 +1,37 @@
+{
+  "name": "keyfinder",
+  "productName": "KeyFinder",
+  "private": true,
+  "version": "0.2.0",
+  "description": "Practice tool for musicians: key, tempo and chord detection, stem separation, pitch and speed control.",
+  "author": "BlueMoon1337",
+  "type": "module",
+  "main": "dist-electron/main.cjs",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "node scripts/dev-web.mjs",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p electron",
+    "test": "vitest run",
+    "build": "npm run typecheck && vite build && node scripts/build-electron.mjs",
+    "build:web": "tsc --noEmit && vite build",
+    "engine": "node scripts/build-engine.mjs",
+    "dist:mac": "npm run build && electron-builder --mac --publish never",
+    "dist:win": "npm run build && electron-builder --win --publish never"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "44.7.0",
+    "electron-builder": "26.17.0",
+    "esbuild": "^0.25.0",
+    "typescript": "~5.6.3",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.8"
+  }
+}

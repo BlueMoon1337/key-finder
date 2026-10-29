@@ -10,7 +10,8 @@ from keyfinder.server import create_app
 
 
 @pytest.fixture
-def client(tmp_path):
+def client(tmp_path, monkeypatch):
+    monkeypatch.setenv("KEYFINDER_UI_DIR", str(tmp_path / "no-ui"))
     app = create_app(tmp_path, inline=True)
     with TestClient(app) as c:
         yield c
@@ -25,7 +26,11 @@ def song_bytes(tmp_path):
 
 
 def upload(client, data, mode="2stems"):
-    return client.post("/api/songs", files={"file": ("My Song.wav", io.BytesIO(data), "audio/wav")},
+    return upload_named(client, data, "My Song.wav", mode)
+
+
+def upload_named(client, data, name, mode="none"):
+    return client.post("/api/songs", files={"file": (name, io.BytesIO(data), "application/octet-stream")},
                        data={"mode": mode, "backend": "dsp"})
 
 
@@ -73,6 +78,14 @@ def test_rejects_bad_input(client, song_bytes):
     assert song["status"] == "error" and song["error"]
 
 
+def test_too_short_is_a_clear_error(client, tmp_path):
+    path = tmp_path / "blip.wav"
+    audio.save(path, np.zeros(2000), 22050)
+    song_id = upload_named(client, path.read_bytes(), "blip.wav").json()["id"]
+    song = client.get(f"/api/songs/{song_id}").json()
+    assert song["status"] == "error" and "at least" in song["error"]
+
+
 def test_rejects_path_tricks(client, song_bytes):
     song_id = upload(client, song_bytes).json()["id"]
     assert client.get("/api/songs/..%2F..%2Fetc").status_code == 404
@@ -82,9 +95,60 @@ def test_rejects_path_tricks(client, song_bytes):
     assert client.get(f"/api/songs/{song_id}/export", params={"volumes": "piano:1"}).status_code == 400
 
 
-def test_static_app_is_served(client):
+def test_built_ui_is_served(tmp_path):
+    ui = tmp_path / "ui"
+    ui.mkdir()
+    (ui / "index.html").write_text("<title>KeyFinder UI</title>")
+    with TestClient(create_app(tmp_path / "data", inline=True, ui_dir=ui)) as c:
+        assert "KeyFinder UI" in c.get("/").text
+        caps = c.get("/api/capabilities").json()
+        assert "dsp" in caps["backends"] and caps["desktop"] is False
+
+
+def test_without_built_ui_explains_how_to_build(client, monkeypatch):
     res = client.get("/")
-    assert res.status_code == 200 and "KeyFinder" in res.text
-    assert client.get("/app.js").status_code == 200
-    caps = client.get("/api/capabilities").json()
-    assert "dsp" in caps["backends"]
+    assert res.status_code == 200 and "npm run build" in res.text
+
+
+def test_metadata_cover_and_editing(client, tmp_path):
+    t = np.arange(22050 * 4) / 22050
+    path = tmp_path / "tagged.m4a"
+    audio.save(path, np.vstack([np.sin(2 * np.pi * 220 * t)] * 2) * 0.3, 22050)
+    song_id = upload_named(client, path.read_bytes(), "tagged.m4a").json()["id"]
+    song = client.get(f"/api/songs/{song_id}").json()
+    assert song["artist"] == "" and song["cover"] is False
+    assert client.get(f"/api/songs/{song_id}/cover").status_code == 404
+
+    edited = client.patch(f"/api/songs/{song_id}", json={"title": "Renamed", "artist": "Someone"}).json()
+    assert (edited["title"], edited["artist"]) == ("Renamed", "Someone")
+    assert client.patch(f"/api/songs/{song_id}", json={"title": "  "}).status_code == 400
+    original = client.get(f"/api/songs/{song_id}/stems/original", params={"download": True})
+    assert "Renamed.mp3" in original.headers["content-disposition"]
+
+
+def test_url_import_refuses_local_addresses(client):
+    for url in ["http://127.0.0.1:8000/song.mp3", "http://localhost/x.mp3", "file:///etc/passwd",
+                "https://www.youtube.com/watch?v=abc"]:
+        res = client.post("/api/songs/url", json={"url": url, "mode": "none"})
+        assert res.status_code == 400, url
+
+
+def test_desktop_token_and_local_import(tmp_path, song_bytes):
+    token = "t" * 40
+    source = tmp_path / "picked.wav"
+    source.write_bytes(song_bytes)
+    with TestClient(create_app(tmp_path / "data", inline=True, token=token)) as c:
+        assert c.get("/api/songs").status_code == 403
+        assert c.get("/api/songs", headers={"X-KeyFinder-Token": "wrong"}).status_code == 403
+        auth = {"X-KeyFinder-Token": token}
+        res = c.post("/api/songs/local", headers=auth,
+                     json={"paths": [str(source), "relative.wav", str(tmp_path / "missing.wav")], "mode": "none"})
+        body = res.json()
+        assert res.status_code == 201 and len(body["created"]) == 1 and len(body["failed"]) == 2
+        assert c.get("/api/songs", headers=auth).json()[0]["status"] == "ready"
+        bad = c.post("/api/songs/local", headers=auth, json={"paths": [str(source)], "mode": "9stems"})
+        assert bad.status_code == 400
+
+
+def test_local_import_only_exists_in_desktop_mode(client, tmp_path):
+    assert client.post("/api/songs/local", json={"paths": ["/etc/hosts"]}).status_code in (404, 405)

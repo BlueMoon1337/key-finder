@@ -3,7 +3,8 @@
 Each song lives in ``<data>/songs/<id>/``:
 
 * ``source.<ext>`` - the uploaded file
-* ``song.json``    - status, progress, analysis results and stem list
+* ``song.json``    - status, progress, metadata, analysis results and stem list
+* ``cover.jpg``    - embedded artwork or a video frame, when there is one
 * ``stems/``       - one mp3 per stem, plus cached pitch-shifted renders
 """
 
@@ -23,6 +24,7 @@ from . import analysis, audio, separation
 
 ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 ORIGINAL = "original"
+MIN_SECONDS = 2
 
 
 class SongNotFound(KeyError):
@@ -78,7 +80,8 @@ class JobStore:
 
     @staticmethod
     def summary(song: dict) -> dict:
-        keep = ("id", "title", "status", "progress", "stage", "error", "created_at", "mode", "backend", "stems")
+        keep = ("id", "title", "artist", "cover", "status", "progress", "stage", "error", "created_at",
+                "mode", "backend", "stems")
         out = {k: song.get(k) for k in keep}
         result = song.get("analysis") or {}
         if result:
@@ -89,6 +92,27 @@ class JobStore:
     def delete(self, song_id: str) -> None:
         shutil.rmtree(self.song_dir(song_id))
 
+    def update_info(self, song_id: str, title: str | None = None, artist: str | None = None) -> dict:
+        """Rename a song; edited fields are no longer overwritten by file tags."""
+        fields: dict = {}
+        song = self.get(song_id)
+        edited = set(song.get("edited", []))
+        if title is not None:
+            if not title.strip():
+                raise ValueError("title cannot be empty")
+            fields["title"] = title.strip()[:200]
+            edited.add("title")
+        if artist is not None:
+            fields["artist"] = artist.strip()[:200]
+            edited.add("artist")
+        return self._update(song_id, edited=sorted(edited), **fields)
+
+    def cover_path(self, song_id: str) -> Path:
+        path = self.song_dir(song_id) / "cover.jpg"
+        if not path.exists():
+            raise SongNotFound(f"{song_id}/cover")
+        return path
+
     def stem_path(self, song_id: str, stem: str) -> Path:
         song = self.get(song_id)
         if stem not in song.get("stems", []):
@@ -97,11 +121,18 @@ class JobStore:
 
     # ------------------------------------------------------------------ jobs
 
+    @staticmethod
+    def check_options(mode: str, backend: str) -> str | None:
+        """Validate separation options; returns the backend that will run (None for no separation)."""
+        if mode == "none":
+            return None
+        if mode not in separation.MODES:
+            raise ValueError(f"unknown separation mode {mode!r}")
+        return separation.choose_backend(backend, mode)
+
     def create(self, filename: str, data_path: Path, mode: str = "4stems", backend: str = "auto") -> dict:
         """Register an uploaded file (moved from ``data_path``) and queue processing."""
-        if mode != "none" and mode not in separation.MODES:
-            raise ValueError(f"unknown separation mode {mode!r}")
-        resolved = separation.choose_backend(backend, mode) if mode != "none" else None
+        resolved = self.check_options(mode, backend)
         song_id = uuid.uuid4().hex
         folder = self.root / song_id
         (folder / "stems").mkdir(parents=True)
@@ -110,7 +141,8 @@ class JobStore:
         shutil.move(str(data_path), source)
         title = Path(filename).stem.strip() or "Untitled"
         song = {
-            "id": song_id, "title": title[:200], "source": source.name,
+            "id": song_id, "title": title[:200], "artist": "", "cover": False, "edited": [],
+            "source": source.name,
             "mode": mode, "backend": resolved,
             "status": "queued", "stage": "Waiting", "progress": 0.0, "error": None,
             "stems": [], "analysis": None,
@@ -130,7 +162,11 @@ class JobStore:
             source = folder / song["source"]
             stems_dir = folder / "stems"
 
+            self._read_metadata(song_id, source)
             y = audio.load(source, audio.ANALYSIS_SR)
+            if y.size < MIN_SECONDS * audio.ANALYSIS_SR:
+                seconds = y.size / audio.ANALYSIS_SR
+                raise audio.AudioError(f"the audio is only {seconds:.1f} s long; songs need at least {MIN_SECONDS} s")
             self._update(song_id, stage="Detecting key, tempo and chords", progress=0.15)
             result = analysis.analyze_signal(y, audio.ANALYSIS_SR)
             self._update(song_id, analysis=result, progress=0.35)
@@ -152,6 +188,22 @@ class JobStore:
                 self._update(song_id, status="error", stage="Failed", error=str(exc)[:2000])
             except SongNotFound:
                 pass  # deleted while processing
+
+    def _read_metadata(self, song_id: str, source: Path) -> None:
+        """Take title/artist from the file's tags and pull out cover art or a video frame."""
+        meta = audio.probe(source)
+        song = self.get(song_id)
+        fields = {}
+        for name in ("title", "artist"):
+            if meta.get(name) and name not in song.get("edited", []):
+                fields[name] = meta[name][:200]
+        cover = self.song_dir(song_id) / "cover.jpg"
+        if meta.get("cover"):
+            fields["cover"] = audio.extract_cover(source, cover)
+        elif meta.get("video"):
+            fields["cover"] = audio.extract_cover(source, cover, at=min(1.0, meta.get("duration", 0) / 3))
+        if fields:
+            self._update(song_id, **fields)
 
     def _recover(self) -> None:
         """Mark songs interrupted by a restart as failed so they do not spin forever."""

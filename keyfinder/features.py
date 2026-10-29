@@ -102,7 +102,7 @@ def onset_strength(y: np.ndarray, sr: int, max_freq: float | None = None) -> np.
     logspec = np.log1p(1000.0 * spec / (spec.max() + 1e-9))
     flux = np.maximum(0.0, np.diff(logspec, axis=1, prepend=logspec[:, :1])).sum(axis=0)
     # Remove the slowly varying loudness trend so quiet and loud sections compare.
-    win = max(1, int(round(0.5 * sr / HOP)))
+    win = max(1, min(flux.size, int(round(0.5 * sr / HOP))))
     trend = np.convolve(flux, np.ones(win) / win, mode="same")
     env = np.maximum(0.0, flux - trend)
     peak = env.max()
