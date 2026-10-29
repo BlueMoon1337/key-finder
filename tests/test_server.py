@@ -152,3 +152,17 @@ def test_desktop_token_and_local_import(tmp_path, song_bytes):
 
 def test_local_import_only_exists_in_desktop_mode(client, tmp_path):
     assert client.post("/api/songs/local", json={"paths": ["/etc/hosts"]}).status_code in (404, 405)
+
+
+def test_tempo_can_be_doubled_and_halved(client, song_bytes):
+    song_id = upload(client, song_bytes, mode="none").json()["id"]
+    before = client.get(f"/api/songs/{song_id}").json()["analysis"]
+    doubled_bpm = client.patch(f"/api/songs/{song_id}", json={"tempo": "double"}).json()["bpm"]
+    assert doubled_bpm == pytest.approx(2 * before["bpm"], abs=0.2)
+    doubled = client.get(f"/api/songs/{song_id}").json()["analysis"]
+    assert len(doubled["beats"]) == 2 * len(before["beats"]) - 1
+    assert set(before["beats"]) <= set(doubled["beats"])
+    client.patch(f"/api/songs/{song_id}", json={"tempo": "half"})
+    back = client.get(f"/api/songs/{song_id}").json()["analysis"]
+    assert back["beats"] == before["beats"] and back["bpm"] == pytest.approx(before["bpm"], abs=0.2)
+    assert client.patch(f"/api/songs/{song_id}", json={"tempo": "triple"}).status_code == 422

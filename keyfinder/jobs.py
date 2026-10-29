@@ -107,6 +107,13 @@ class JobStore:
             edited.add("artist")
         return self._update(song_id, edited=sorted(edited), **fields)
 
+    def scale_tempo(self, song_id: str, factor: float) -> dict:
+        """Double or halve a ready song's tempo (when the beat tracker counted half or double time)."""
+        song = self.get(song_id)
+        if song["status"] != "ready" or not song.get("analysis"):
+            raise ValueError("song is still processing")
+        return self._update(song_id, analysis=analysis.scale_tempo(song["analysis"], factor))
+
     def cover_path(self, song_id: str) -> Path:
         path = self.song_dir(song_id) / "cover.jpg"
         if not path.exists():

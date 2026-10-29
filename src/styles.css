@@ -748,6 +748,22 @@ code {
   color: var(--muted);
   font-size: 12px;
 }
+.stat {
+  position: relative;
+}
+.tempo-fix {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 4px;
+}
+.tempo-fix button {
+  padding: 2px 8px;
+  font-size: 12px;
+  border-radius: 7px;
+  color: var(--muted);
+}
 .panel {
   background: var(--panel);
   border-radius: var(--radius);

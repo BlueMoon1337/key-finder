@@ -164,7 +164,9 @@ class Playback {
 
   /** The analysis changed (e.g. the song was renamed): keep playing, show the new details. */
   refreshSong(song: Song) {
-    if (this.snapshot.song?.id === song.id) this.set({ song })
+    if (this.snapshot.song?.id !== song.id) return
+    this.set({ song })
+    this.resetMetronome() // the beats may have changed (tempo doubled or halved)
   }
 
   // ------------------------------------------------------------ transport

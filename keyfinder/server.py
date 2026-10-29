@@ -164,8 +164,13 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
             return {"created": created, "failed": failed}
 
     @app.patch("/api/songs/{song_id}")
-    def edit_song(song_id: str, title: str | None = Body(None), artist: str | None = Body(None)):
+    def edit_song(song_id: str, title: str | None = Body(None), artist: str | None = Body(None),
+                  tempo: str | None = Body(None, pattern="^(double|half)$")):
         try:
+            if tempo:
+                store.scale_tempo(song_id, 2.0 if tempo == "double" else 0.5)
+            if title is None and artist is None:
+                return store.summary(store.get(song_id))
             return store.summary(store.update_info(song_id, title=title, artist=artist))
         except SongNotFound as exc:
             raise not_found(exc) from exc

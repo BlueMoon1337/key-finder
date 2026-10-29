@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
-import { type Chord, type ChordLevel, type Song, coverUrl, exportPath, saveFromApi } from '../api'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type Chord, type ChordLevel, type Song, coverUrl, editSong, exportPath, getSong, saveFromApi } from '../api'
 import { beatInBar, beatIndexAt, camelot, chordIndexAt, chordLabel, formatTime, keyUsesFlats, relativeKey, transposeKeyName } from '../music'
 import { MAX_SPEED, MIN_SPEED, playback } from '../playback'
-import { errorMessage, loadSong, navigate, toast, updateSettings, useApp } from '../store'
+import { errorMessage, loadSong, navigate, refreshLibrary, toast, updateSettings, useApp } from '../store'
 import { Back5Icon, ChevronLeftIcon, Forward5Icon, LibraryIcon, PauseIcon, PlayIcon } from './Icons'
 import { useFrame } from './useFrame'
 import { usePlayback } from './usePlayback'
@@ -73,7 +73,9 @@ function Player({ song }: { song: Song }) {
       <section className="stats">
         <Stat label="Key" value={transposeKeyName(a.key, semitones)} sub={semitones ? `original ${a.key.name}` : `${Math.round(a.key.confidence * 100)}% confidence`} />
         <Stat label="Camelot" value={camelot(tonic, a.key.mode)} sub={`relative ${relativeKey(tonic, a.key.mode)}`} />
-        <Stat label="Tempo" value={(a.bpm * speed).toFixed(speed === 1 ? 1 : 0)} sub={speed === 1 ? 'BPM' : `BPM (original ${a.bpm})`} />
+        <Stat label="Tempo" value={(a.bpm * speed).toFixed(speed === 1 ? 1 : 0)} sub={speed === 1 ? 'BPM' : `BPM (original ${a.bpm})`}>
+          <TempoFix song={song} />
+        </Stat>
         <Stat label="Tuning" value={`${a.tuning_cents > 0 ? '+' : ''}${Math.round(a.tuning_cents)}`} sub="cents from A440" />
       </section>
 
@@ -91,13 +93,41 @@ function Player({ song }: { song: Song }) {
   )
 }
 
-function Stat({ label, value, sub }: { label: string; value: string; sub: string }) {
+function Stat({ label, value, sub, children }: { label: string; value: string; sub: string; children?: ReactNode }) {
   return (
     <div className="stat">
       <span className="label">{label}</span>
       <span className="value">{value}</span>
       <span className="sub">{sub}</span>
+      {children}
     </div>
+  )
+}
+
+/** Half / double time: tempo is often ambiguous by a factor of two, so the listener can correct it. */
+function TempoFix({ song }: { song: Song }) {
+  const [busy, setBusy] = useState(false)
+  const scale = async (tempo: 'double' | 'half') => {
+    setBusy(true)
+    try {
+      await editSong(song.id, { tempo })
+      playback.refreshSong(await getSong(song.id))
+      void refreshLibrary()
+    } catch (e) {
+      toast(errorMessage(e), true)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <span className="tempo-fix">
+      <button disabled={busy} title="The tempo is double what you hear: halve it" onClick={() => void scale('half')}>
+        ½×
+      </button>
+      <button disabled={busy} title="The tempo is half what you hear: double it" onClick={() => void scale('double')}>
+        2×
+      </button>
+    </span>
   )
 }
 

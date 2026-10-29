@@ -128,7 +128,7 @@ export const downloadDemucs = (model: string) => request<DemucsStatus>('/api/dem
 export const listSongs = () => request<SongSummary[]>('/api/songs')
 export const getSong = (id: string) => request<Song>(`/api/songs/${id}`)
 export const deleteSong = (id: string) => request<null>(`/api/songs/${id}`, { method: 'DELETE' })
-export const editSong = (id: string, patch: { title?: string; artist?: string }) =>
+export const editSong = (id: string, patch: { title?: string; artist?: string; tempo?: 'double' | 'half' }) =>
   request<SongSummary>(`/api/songs/${id}`, json('PATCH', patch))
 
 export interface ImportOptions {

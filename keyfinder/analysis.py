@@ -112,6 +112,29 @@ def analyze_signal(y: np.ndarray, sr: int = audio.ANALYSIS_SR) -> dict:
     }
 
 
+def scale_tempo(result: dict, factor: float) -> dict:
+    """The analysis with its tempo doubled (factor 2) or halved (0.5), for when the beat tracker
+    has counted half or double time. Bars are found again from the chords.
+    """
+    beats = list(result["beats"])
+    if factor == 2:
+        new = sorted(beats + [round((a + b) / 2, 3) for a, b in zip(beats[:-1], beats[1:], strict=True)])
+    elif factor == 0.5:
+        # Keep the half of the beats that holds the most downbeats, so 2x then 0.5x is a round trip.
+        downbeats = set(result["downbeats"])
+        parity = max((0, 1), key=lambda p: sum(b in downbeats for b in beats[p::2]))
+        new = beats[parity::2]
+    else:
+        raise ValueError("tempo can only be doubled or halved")
+    if len(new) < 2:
+        return result
+    times = np.asarray(new)
+    first = int(np.argmin(np.abs(times - result["downbeats"][0]))) if result["downbeats"] else 0
+    current = [round(float(t), 3) for t in times[first % 4::4]]
+    downbeats = downbeats_from_chords(new, result["chords"]["basic"], current)
+    return {**result, "beats": new, "downbeats": downbeats, "bpm": round(result["bpm"] * factor, 1)}
+
+
 def improve_with_stems(result: dict, stems: dict[str, np.ndarray], sr: int) -> dict:
     """The analysis redone with the separated stems: chords, then the key and downbeats they imply.
 
