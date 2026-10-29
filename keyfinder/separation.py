@@ -3,8 +3,9 @@
 Two backends:
 
 * ``demucs`` - Meta's Hybrid Transformer Demucs, a neural model with
-  state-of-the-art quality. Used automatically when the optional ``demucs``
-  package is installed (``pip install -e .[ml]``).
+  state-of-the-art quality (see neural.py). Used automatically when the
+  ``demucs`` package is installed: it's bundled in the desktop app, and
+  ``pip install -e .[ml]`` adds it to a source checkout.
 * ``dsp`` - a dependency-free fallback using harmonic/percussive median
   filtering, stereo centre extraction and frequency crossovers. It is fast
   and always available but much rougher; it is meant for practice use
@@ -15,16 +16,15 @@ Both return stems whose sum reconstructs the input mix.
 
 from __future__ import annotations
 
-import importlib.util
-import subprocess
-import sys
-import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
 from scipy import ndimage, signal
 
-from . import audio
+from . import audio, neural
+
+Progress = Callable[[float], None]
 
 MODES = {
     "2stems": ("vocals", "accompaniment"),
@@ -35,7 +35,7 @@ DSP_MODES = ("2stems", "4stems")
 
 
 def demucs_available() -> bool:
-    return importlib.util.find_spec("demucs") is not None
+    return neural.available()
 
 
 def available_backends() -> list[str]:
@@ -54,37 +54,29 @@ def choose_backend(requested: str = "auto", mode: str = "4stems") -> str:
     return requested
 
 
-def separate(path: str | Path, mode: str = "4stems", backend: str = "auto") -> tuple[dict[str, np.ndarray], int]:
-    """Split the file at ``path`` into stereo stems ``{name: (2, n)}``; returns (stems, sample_rate)."""
+def separate(
+    path: str | Path,
+    mode: str = "4stems",
+    backend: str = "auto",
+    progress: Progress | None = None,
+    should_stop: Callable[[], bool] | None = None,
+    on_download: Callable[[], None] | None = None,
+) -> tuple[dict[str, np.ndarray], int]:
+    """Split the file at ``path`` into stereo stems ``{name: (2, n)}``; returns (stems, sample_rate).
+
+    ``progress`` gets 0..1 as the work goes; ``should_stop`` is asked now and then and
+    cancels the separation (raising :class:`neural.Cancelled`) when it answers True.
+    ``on_download`` is called before the Demucs model is downloaded the first time.
+    """
     if mode not in MODES:
         raise ValueError(f"unknown separation mode {mode!r}; choose from {', '.join(MODES)}")
     backend = choose_backend(backend, mode)
+    y = audio.load(path, audio.SEPARATION_SR, mono=False)
     if backend == "demucs":
-        return _separate_demucs(Path(path), mode), audio.SEPARATION_SR
+        return neural.separate(y, mode, progress, should_stop, on_download), audio.SEPARATION_SR
     if mode not in DSP_MODES:
         mode = "4stems"
-    y = audio.load(path, audio.SEPARATION_SR, mono=False)
-    return separate_dsp(y, audio.SEPARATION_SR, mode), audio.SEPARATION_SR
-
-
-# --------------------------------------------------------------------------- demucs
-
-def _separate_demucs(path: Path, mode: str) -> dict[str, np.ndarray]:
-    model = "htdemucs_6s" if mode == "6stems" else "htdemucs"
-    with tempfile.TemporaryDirectory() as tmp:
-        cmd = [sys.executable, "-m", "demucs.separate", "-n", model, "-o", tmp, "--float32"]
-        if mode == "2stems":
-            cmd += ["--two-stems", "vocals"]
-        cmd.append(str(path))
-        proc = subprocess.run(cmd, capture_output=True, text=True)
-        if proc.returncode != 0:
-            raise RuntimeError(f"demucs failed: {proc.stderr.strip()[-2000:]}")
-        out_dir = next(Path(tmp, model).iterdir())
-        stems = {}
-        for name in MODES[mode]:
-            source = "no_vocals" if name == "accompaniment" else name
-            stems[name] = audio.load(out_dir / f"{source}.wav", audio.SEPARATION_SR, mono=False)
-        return stems
+    return separate_dsp(y, audio.SEPARATION_SR, mode, progress, should_stop), audio.SEPARATION_SR
 
 
 # --------------------------------------------------------------------------- dsp
@@ -143,7 +135,8 @@ def _separate_block(y: np.ndarray, sr: int, mode: str) -> dict[str, np.ndarray]:
     return stems
 
 
-def separate_dsp(y: np.ndarray, sr: int, mode: str = "4stems") -> dict[str, np.ndarray]:
+def separate_dsp(y: np.ndarray, sr: int, mode: str = "4stems", progress: Progress | None = None,
+                 should_stop: Callable[[], bool] | None = None) -> dict[str, np.ndarray]:
     """Separate a ``(channels, n)`` signal in overlapping blocks to bound memory use."""
     y = np.atleast_2d(np.asarray(y, dtype=np.float32))
     n = y.shape[1]
@@ -157,4 +150,8 @@ def separate_dsp(y: np.ndarray, sr: int, mode: str = "4stems") -> dict[str, np.n
         keep = slice(start - lo, start - lo + min(block, n - start))
         for name in names:
             out[name][:, start:start + min(block, n - start)] = stems[name][:, keep]
+        if progress:
+            progress(min(1.0, (start + block) / n))
+        if should_stop and should_stop():
+            raise neural.Cancelled()
     return out

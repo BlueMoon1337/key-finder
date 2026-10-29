@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react'
-import type { Backend, ChordLevel, SeparationMode } from '../api'
+import { useEffect, useMemo, useState } from 'react'
+import { type Backend, type ChordLevel, type SeparationMode, downloadDemucs } from '../api'
 import { desktop, isMac } from '../platform'
 import { REPOSITORY_NAME, checkForUpdates, installUpdate, progressText, saveToken, useUpdates } from '../platform/updates'
-import { errorMessage, updateSettings, useApp } from '../store'
+import { errorMessage, loadCapabilities, toast, updateSettings, useApp } from '../store'
 import { FolderIcon } from './Icons'
 
 export function Profile() {
@@ -79,12 +79,15 @@ export function Profile() {
             </select>
           </label>
         </div>
-        <p className="hint">
-          {hasDemucs
-            ? 'Stems are separated with Demucs, a neural network: the cleanest results, but it takes a while for each song.'
-            : 'Stems are separated with the fast built-in separator. It’s good for turning parts down to practise along, not for clean isolation. Running KeyFinder from source with Demucs installed gives studio-quality stems.'}
-        </p>
+        {!hasDemucs && (
+          <p className="hint">
+            Stems are separated with the fast built-in separator: good for turning parts down to practise along, not for clean
+            isolation. Install Demucs (<code>pip install -e ".[ml]"</code>) for studio-quality stems.
+          </p>
+        )}
       </section>
+
+      {hasDemucs && <DemucsSection />}
 
       {desktop && <EngineSection />}
       {desktop && <UpdatesSection />}
@@ -106,6 +109,75 @@ function Big({ value, label }: { value: string; label: string }) {
       <span className="big">{value}</span>
       <span className="muted">{label}</span>
     </div>
+  )
+}
+
+const DEVICES: Record<string, string> = {
+  mps: 'the Apple silicon GPU',
+  cuda: 'the NVIDIA GPU',
+  cpu: 'the CPU',
+}
+
+const DEMUCS_MODELS = [
+  { name: 'htdemucs', label: '4-stem model', use: 'vocals, drums, bass, other (and 2 stems)' },
+  { name: 'htdemucs_6s', label: '6-stem model', use: 'adds guitar and piano' },
+]
+
+function DemucsSection() {
+  const demucs = useApp((s) => s.capabilities?.demucs)
+  const downloading = demucs?.downloading ?? null
+
+  // Follow a download while it runs.
+  useEffect(() => {
+    if (!downloading) return
+    const timer = window.setInterval(() => void loadCapabilities(), 1000)
+    return () => window.clearInterval(timer)
+  }, [downloading])
+
+  if (!demucs?.installed) return null
+  const device = DEVICES[demucs.device ?? 'cpu'] ?? demucs.device
+  return (
+    <section className="panel">
+      <h2>Stem separation</h2>
+      <p className="hint">
+        Stems are separated with <b>Demucs</b>, a neural network from Meta AI, running on {device}.
+        {demucs.device === 'cpu' ? ' On the CPU, allow a few minutes per song.' : ''} Each model
+        is downloaded once, the first time it’s needed, or now:
+      </p>
+      <div className="models">
+        {DEMUCS_MODELS.map((m) => {
+          const ready = demucs.models?.[m.name]
+          return (
+            <div className="row model" key={m.name}>
+              <span className="model-name">
+                <b>{m.label}</b>
+                <span className="muted">{m.use}</span>
+              </span>
+              {ready ? (
+                <span className="ready">✓ Downloaded</span>
+              ) : downloading === m.name ? (
+                <span className="muted">Downloading…</span>
+              ) : (
+                <button
+                  disabled={!!downloading}
+                  onClick={async () => {
+                    try {
+                      await downloadDemucs(m.name)
+                      await loadCapabilities()
+                    } catch (e) {
+                      toast(errorMessage(e), true)
+                    }
+                  }}
+                >
+                  Download
+                </button>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      {demucs.download_error && <p className="error">{demucs.download_error}</p>}
+    </section>
   )
 }
 

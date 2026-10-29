@@ -41,6 +41,7 @@ def _exit_with_parent() -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="keyfinder-engine", description=__doc__.split("\n")[0])
     parser.add_argument("--data", required=True, help="library folder where songs are stored")
+    parser.add_argument("--models", help="where downloaded Demucs models are kept (default: <data>/models)")
     parser.add_argument("--port", type=int, default=0, help="0 picks a free port")
     parser.add_argument("--no-parent-watch", action="store_true", help="keep running when stdin closes")
     args = parser.parse_args(argv)
@@ -60,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     sock.bind(("127.0.0.1", args.port))
     port = sock.getsockname()[1]
 
-    app = create_app(Path(args.data), token=token)
+    app = create_app(Path(args.data), token=token, models_dir=Path(args.models) if args.models else None)
     config = uvicorn.Config(app, log_level="warning", access_log=False)
     server = uvicorn.Server(config)
 

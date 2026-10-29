@@ -80,7 +80,7 @@ function Player({ song }: { song: Song }) {
       <NowPlaying song={song} chords={chords} semitones={semitones} flats={flats} />
 
       <div className="columns">
-        <Mixer />
+        <Mixer warning={song.warning} />
         <Practice song={song} />
       </div>
       <p className="shortcuts">
@@ -291,7 +291,7 @@ function NowPlaying({ song, chords, semitones, flats }: { song: Song; chords: Ch
 
 // ---------------------------------------------------------------- mixer
 
-function Mixer() {
+function Mixer({ warning }: { warning: string | null }) {
   const tracks = usePlayback((p) => p.tracks)
   return (
     <section className="panel">
@@ -318,6 +318,7 @@ function Mixer() {
         </div>
       ))}
       {tracks.length === 1 && <p className="hint">This song wasn’t split into stems. Add it again with separation on to mix vocals, drums and bass.</p>}
+      {warning && <p className="hint warning">{warning}</p>}
     </section>
   )
 }

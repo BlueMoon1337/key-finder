@@ -6,7 +6,7 @@ A practice app for musicians, for macOS and Windows. Add a song and KeyFinder:
 
 - **finds its key** (with the Camelot code, the relative key and how sure it is), **tempo**, beat grid and tuning
 - **shows the chords** as the song plays, in three levels of detail: basic triads, sevenths, then dim, aug and sus
-- **splits it into stems** (vocals, drums, bass and other; or vocals and accompaniment) with a mixer to mute, solo or turn down each one
+- **splits it into stems** with Demucs, Meta AI's neural separator: vocals, drums, bass and other; vocals and accompaniment; or six stems with guitar and piano. A mixer mutes, solos or turns down each one
 - lets you **change the key** (±12 semitones, and the chords transpose with it) and the **speed** (50–150 %, without changing the pitch)
 - has a **metronome that follows the song's own beats**, a one-bar **count-in** and **A–B loops** that snap to beats
 - **exports** your mix (the song without vocals, two semitones down at 80 %, say) as MP3, WAV or M4A
@@ -53,7 +53,7 @@ After that, **Profile ▸ Updates** installs new versions by itself (see [Releas
 | `electron/` | The desktop app's main process. Its window, menus, IPC trust check, window-state memory, single-instance lock, updater and release scripts come from [Player](https://github.com/BlueMoon1337/Player). |
 | `src/` | The interface: React and TypeScript, built with Vite. It runs in the desktop app or a browser (`src/platform` hides the difference, as in Player). |
 | `keyfinder/` | The analysis engine, in Python. The desktop app runs it as a child process (`keyfinder/engine.py`) that listens on 127.0.0.1 and answers only requests carrying a token made for that launch. The app adds the token as it passes requests through its `app://keyfinder/api` protocol, so nothing else on the computer can use the engine. |
-| `packaging/` | Freezes the engine with PyInstaller so the app needs no Python. Audio goes through PyAV (FFmpeg's libraries), so no FFmpeg install is needed either. |
+| `packaging/` | Freezes the engine, Demucs and PyTorch included, with PyInstaller, so the app needs no Python. Audio goes through PyAV (FFmpeg's libraries), so no FFmpeg install is needed either. |
 
 How the analysis works:
 
@@ -62,11 +62,21 @@ How the analysis works:
 | Key | Tuning-corrected chroma correlated with Krumhansl–Kessler and Temperley key profiles. Relative major/minor ties are broken with the chord sequence (time on the tonic chord, the first and last chord). |
 | Tempo and beats | Spectral-flux onsets → prior-weighted autocorrelation → Ellis's dynamic-programming beat tracker; downbeats from low-frequency accents. |
 | Chords | Beat-synchronous chroma and bass chroma, template matching against the chord vocabulary, a key-aware prior, and Viterbi smoothing weighted by duration. |
-| Stems | [Demucs](https://github.com/facebookresearch/demucs) (`htdemucs`, `htdemucs_6s`) when it's installed; otherwise a fast DSP separator (harmonic/percussive median filtering, stereo centre extraction, crossovers). Both give stems that add back up to the mix. |
+| Stems | [Demucs](https://github.com/adefossez/demucs) (Hybrid Transformer Demucs: `htdemucs`, and `htdemucs_6s` for six stems), run in the engine's process (`keyfinder/neural.py`). The fallback is a fast DSP separator (harmonic/percussive median filtering, stereo centre extraction, crossovers) that gives stems adding back up to the mix. |
 | Pitch | Rendered by the engine and cached: Rubber Band (formant-preserving) when a system FFmpeg has it, else FFmpeg's `asetrate` + `atempo`. |
 | Speed | Live in the player (`playbackRate` with the pitch kept). |
 
-**Stem quality.** The desktop app ships with the fast DSP separator. It's good for turning a part down to play along, but it won't isolate parts cleanly. Demucs gives studio-quality stems, but it needs PyTorch (about 2 GB), so it isn't bundled. Run KeyFinder from source with `pip install -e ".[ml]"` to use it, and 6-stem separation becomes available.
+### Stem separation with Demucs
+
+The desktop app separates stems with Demucs, which comes bundled with PyTorch.
+
+- **Where it runs.** It uses the GPU on Apple silicon Macs (Metal), an NVIDIA GPU when PyTorch has CUDA (from source), and the CPU otherwise (Windows, Intel Macs). On the CPU, allow a few minutes per song. Set `KEYFINDER_DEVICE` (`cpu`, `mps`, `cuda`) to choose.
+- **Models.** The weights aren't in the installer. Each model is downloaded once from the Hugging Face hub (`adefossez/HTDemucs`, `adefossez/HTDemucs-6s`) the first time a song needs it, or ahead of time with **Profile ▸ Stem separation ▸ Download**. They're kept in KeyFinder's settings folder (`~/Library/Application Support/KeyFinder/models` on a Mac, `%APPDATA%\KeyFinder\models` on Windows), and separation works offline after that.
+- **Offline the first time.** If a model can't be downloaded and the engine is set to **Best available**, the song is separated with the fast separator instead, and the mixer says so. With **Demucs** chosen, the song fails with the reason.
+- **Better quality.** `KEYFINDER_DEMUCS_MODEL=htdemucs_ft` uses Demucs' fine-tuned model for 2 and 4 stems. It's a little better and about four times slower.
+- **Intel Macs** get PyTorch 2.2, the last version built for them (Demucs selects it).
+
+Choosing **Fast (DSP)** in Profile skips Demucs. It takes seconds and is good for turning a part down to play along, but it doesn't isolate parts cleanly.
 
 ## Running from source
 
@@ -86,7 +96,7 @@ npm run dev        # the desktop app, reloading as you edit; it runs the engine 
 npm run dev:web    # the same interface in a browser at http://localhost:5173
 ```
 
-On Windows the virtual environment's Python is `.venv\Scripts\python.exe`. Add `".[ml]"` to the pip install for Demucs.
+On Windows the virtual environment's Python is `.venv\Scripts\python.exe`. For Demucs, also run `pip install -e ".[ml]"`. On Linux, install CPU-only PyTorch first unless you have an NVIDIA GPU (`pip install torch --index-url https://download.pytorch.org/whl/cpu`); PyPI's Linux PyTorch includes several gigabytes of CUDA libraries.
 
 The engine also works on its own:
 
@@ -119,7 +129,11 @@ The **CI** workflow runs all of them on every push and pull request.
 
 ## Releases and updates
 
-This works the same way as Player's. The **Release** workflow (`.github/workflows/release.yml`) builds KeyFinder for Apple silicon Macs, Intel Macs and Windows, signs the update files and publishes a GitHub release:
+This works the same way as Player's. The **Release** workflow (`.github/workflows/release.yml`) builds KeyFinder for Apple silicon Macs, Intel Macs and Windows, signs the update files and publishes a GitHub release.
+
+Apple silicon builds run on GitHub's Apple silicon runner (`macos-latest`); they don't use `macos-15-intel`. That runner builds only the Intel Mac version. Removing its entry from the workflow drops the Intel build and leaves Apple silicon builds unaffected.
+
+To publish a release:
 
 1. Raise `version` in `package.json` (and in `pyproject.toml` and `keyfinder/__init__.py`).
 2. Push to `main`. The workflow starts by itself when that version hasn't been released. Pushing a `v…` tag, or **Actions ▸ Release ▸ Run workflow**, also starts it.

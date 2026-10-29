@@ -468,7 +468,7 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   void app.whenReady().then(() => {
-    engine = new Engine(libraryRoot())
+    engine = new Engine(libraryRoot(), path.join(app.getPath('userData'), 'models'))
     engine.onStatus((info) => win?.webContents.send('engine:status', info))
     engine.start()
     registerAppProtocol()

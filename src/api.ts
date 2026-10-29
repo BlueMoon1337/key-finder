@@ -16,6 +16,8 @@ export interface SongSummary {
   progress: number
   stage: string
   error: string | null
+  /** Something to know about how it was processed (e.g. Demucs couldn't be downloaded). */
+  warning: string | null
   created_at: number
   mode: SeparationMode
   backend: string | null
@@ -60,6 +62,16 @@ export interface Song extends SongSummary {
   analysis: Analysis | null
 }
 
+export interface DemucsStatus {
+  installed: boolean
+  /** Where it runs: cuda, mps (Apple silicon) or cpu. */
+  device?: string
+  /** Whether each model's weights are on this computer. */
+  models?: Record<string, boolean>
+  downloading?: string | null
+  download_error?: string | null
+}
+
 export interface Capabilities {
   version: string
   backends: string[]
@@ -68,6 +80,7 @@ export interface Capabilities {
   rubberband: boolean
   max_upload_mb: number
   desktop: boolean
+  demucs: DemucsStatus
 }
 
 export class ApiError extends Error {
@@ -109,6 +122,7 @@ const json = (method: string, body: unknown): RequestInit => ({
 })
 
 export const getCapabilities = () => request<Capabilities>('/api/capabilities')
+export const downloadDemucs = (model: string) => request<DemucsStatus>('/api/demucs/download', json('POST', { model }))
 export const listSongs = () => request<SongSummary[]>('/api/songs')
 export const getSong = (id: string) => request<Song>(`/api/songs/${id}`)
 export const deleteSong = (id: string) => request<null>(`/api/songs/${id}`, { method: 'DELETE' })

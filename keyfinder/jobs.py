@@ -20,7 +20,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import analysis, audio, separation
+from . import analysis, audio, neural, separation
 
 ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 ORIGINAL = "original"
@@ -80,7 +80,7 @@ class JobStore:
 
     @staticmethod
     def summary(song: dict) -> dict:
-        keep = ("id", "title", "artist", "cover", "status", "progress", "stage", "error", "created_at",
+        keep = ("id", "title", "artist", "cover", "status", "progress", "stage", "error", "warning", "created_at",
                 "mode", "backend", "stems")
         out = {k: song.get(k) for k in keep}
         result = song.get("analysis") or {}
@@ -143,7 +143,7 @@ class JobStore:
         song = {
             "id": song_id, "title": title[:200], "artist": "", "cover": False, "edited": [],
             "source": source.name,
-            "mode": mode, "backend": resolved,
+            "mode": mode, "backend": resolved, "requested_backend": backend, "warning": None,
             "status": "queued", "stage": "Waiting", "progress": 0.0, "error": None,
             "stems": [], "analysis": None,
             "created_at": time.time(), "updated_at": time.time(),
@@ -175,19 +175,55 @@ class JobStore:
             audio.save(stems_dir / f"{ORIGINAL}.mp3", full, audio.SEPARATION_SR)
             stems = [ORIGINAL]
             if song["mode"] != "none":
-                self._update(song_id, stage=f"Separating stems ({song['backend']})", progress=0.45)
-                separated, sr = separation.separate(source, song["mode"], song["backend"])
+                separated, sr = self._separate(song_id, song, source)
                 self._update(song_id, stage="Encoding stems", progress=0.85)
                 for name, data in separated.items():
                     audio.save(stems_dir / f"{name}.mp3", data, sr)
                     stems.append(name)
             self._update(song_id, status="ready", stage="Ready", progress=1.0, stems=stems)
+        except neural.Cancelled:
+            pass  # deleted while separating
         except Exception as exc:  # noqa: BLE001 - report any failure on the song itself
             traceback.print_exc()
             try:
                 self._update(song_id, status="error", stage="Failed", error=str(exc)[:2000])
             except SongNotFound:
                 pass  # deleted while processing
+
+    def _separate(self, song_id: str, song: dict, source: Path):
+        """Separate with the song's backend, reporting progress between 45 % and 85 %."""
+        backend = song["backend"]
+        label = "Demucs" if backend == "demucs" else "the fast separator"
+        self._update(song_id, stage=f"Separating stems with {label}", progress=0.45)
+        last = [0.0]
+
+        def progress(fraction: float) -> None:
+            value = 0.45 + 0.4 * fraction
+            if value - last[0] >= 0.01:  # one write per percent is plenty
+                last[0] = value
+                try:
+                    self._update(song_id, progress=round(value, 3))
+                except SongNotFound:
+                    pass  # deleted: should_stop() ends the separation
+
+        def should_stop() -> bool:
+            return not (self.root / song_id / "song.json").exists()
+
+        def on_download() -> None:
+            self._update(song_id, stage="Downloading the Demucs model (first time only)")
+
+        try:
+            separated = separation.separate(source, song["mode"], backend, progress, should_stop, on_download)
+        except neural.ModelUnavailable as exc:
+            # Asked for "best available" and offline the first time: use the fast separator now.
+            if song.get("requested_backend", "auto") != "auto" or song["mode"] not in separation.DSP_MODES:
+                raise
+            self._update(song_id, backend="dsp", stage="Separating stems with the fast separator",
+                         warning=f"{exc} The fast separator was used instead.")
+            separated = separation.separate(source, song["mode"], "dsp", progress, should_stop)
+        if should_stop():
+            raise neural.Cancelled()
+        return separated
 
     def _read_metadata(self, song_id: str, source: Path) -> None:
         """Take title/artist from the file's tags and pull out cover art or a video frame."""

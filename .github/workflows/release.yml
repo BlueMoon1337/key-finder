@@ -76,10 +76,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest # Apple silicon
+          # Apple silicon Macs, built on GitHub's Apple silicon runner. It doesn't use macos-15-intel.
+          - os: macos-latest
             platform: darwin-arm64
             dist: npm run dist:mac -- --arm64
-          # Intel Macs. Remove this entry to ship Apple silicon only.
+          # Intel Macs only. Removing this entry stops the Intel build; Apple silicon builds are unaffected.
           - os: macos-15-intel
             platform: darwin-x64
             dist: npm run dist:mac -- --x64

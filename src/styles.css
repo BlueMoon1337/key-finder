@@ -1086,6 +1086,31 @@ code {
   color: var(--muted);
   font-size: 13px;
 }
+.models {
+  display: grid;
+  gap: 8px;
+}
+.model {
+  justify-content: space-between;
+  background: var(--panel-2);
+  border-radius: 12px;
+  padding: 10px 12px 10px 14px;
+}
+.model-name {
+  display: grid;
+  gap: 2px;
+  font-size: 14px;
+}
+.model-name .muted {
+  font-size: 12px;
+}
+.model .ready {
+  color: var(--accent);
+  font-size: 14px;
+}
+.hint.warning {
+  color: #ffd27a;
+}
 .log {
   background: var(--bg);
   border-radius: 10px;

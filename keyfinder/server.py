@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from . import __version__, remote, separation, transform
+from . import __version__, neural, remote, separation, transform
 from .jobs import ORIGINAL, JobStore, SongNotFound
 
 MAX_UPLOAD_BYTES = int(os.environ.get("KEYFINDER_MAX_UPLOAD_MB", "500")) * 1024 * 1024
@@ -45,9 +45,11 @@ def default_ui_dir() -> Path | None:
 
 
 def create_app(data_dir: str | Path | None = None, inline: bool = False, token: str | None = None,
-               ui_dir: Path | None = None) -> FastAPI:
+               ui_dir: Path | None = None, models_dir: Path | None = None) -> FastAPI:
     data_dir = Path(data_dir or os.environ.get("KEYFINDER_DATA", "data"))
     data_dir.mkdir(parents=True, exist_ok=True)
+    # Demucs weights: the desktop app keeps them with its settings, not in the library.
+    neural.configure(Path(models_dir or os.environ.get("KEYFINDER_MODELS") or data_dir / "models"))
     store = JobStore(data_dir, inline=inline)
     render_locks: defaultdict[Path, threading.Lock] = defaultdict(threading.Lock)
 
@@ -80,7 +82,19 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
             "rubberband": transform.has_rubberband(),
             "max_upload_mb": MAX_UPLOAD_BYTES // (1024 * 1024),
             "desktop": bool(token),
+            "demucs": neural.status(),
         }
+
+    @app.post("/api/demucs/download", status_code=202)
+    def download_demucs(model: str = Body("htdemucs", embed=True)):
+        """Fetch a Demucs model ahead of time (Profile); /api/capabilities shows how it went."""
+        if not neural.available():
+            raise HTTPException(400, "Demucs isn't installed in this engine")
+        try:
+            neural.download(model)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return neural.status()
 
     @app.get("/api/songs")
     def list_songs():

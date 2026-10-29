@@ -49,7 +49,11 @@ export class Engine {
   private waiters: { resolve: (port: number) => void; reject: (e: Error) => void }[] = []
   private listeners = new Set<(info: EngineInfo) => void>()
 
-  constructor(readonly libraryPath: string) {}
+  constructor(
+    readonly libraryPath: string,
+    /** Downloaded Demucs models: with the app's settings, not in the user's library. */
+    readonly modelsPath: string,
+  ) {}
 
   info(): EngineInfo {
     return { status: this.status, error: this.error, version: this.version, libraryPath: this.libraryPath }
@@ -75,7 +79,7 @@ export class Engine {
     this.log = []
     let child: ChildProcessWithoutNullStreams
     try {
-      child = spawn(cmd, [...args, '--data', this.libraryPath], {
+      child = spawn(cmd, [...args, '--data', this.libraryPath, '--models', this.modelsPath], {
         cwd,
         env: { ...process.env, KEYFINDER_TOKEN: this.token, PYTHONUNBUFFERED: '1' },
         stdio: 'pipe',
