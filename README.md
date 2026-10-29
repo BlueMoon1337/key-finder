@@ -34,7 +34,7 @@ The library lives in `Documents/KeyFinder Library`: one folder per song, with it
 
 ## Installing
 
-Download the latest release from GitHub:
+Download the latest release from the [Releases page](https://github.com/BlueMoon1337/key-finder/releases/latest):
 
 - **macOS:** `KeyFinder-…-arm64-mac.dmg` for Apple silicon, `…-x64-mac.dmg` for Intel. Drag KeyFinder to Applications.
 - **Windows:** `KeyFinder-Setup-….exe`.
