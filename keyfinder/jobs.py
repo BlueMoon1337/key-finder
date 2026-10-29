@@ -194,10 +194,18 @@ class JobStore:
         """Separate with the song's backend, reporting progress between 45 % and 85 %."""
         backend = song["backend"]
         label = "Demucs" if backend == "demucs" else "the fast separator"
-        self._update(song_id, stage=f"Separating stems with {label}", progress=0.45)
+        separating = f"Separating stems with {label}"
+        self._update(song_id, stage=separating, progress=0.45)
         last = [0.0]
+        downloading = [False]
 
         def progress(fraction: float) -> None:
+            if downloading[0]:  # the model arrived and separation has begun
+                downloading[0] = False
+                try:
+                    self._update(song_id, stage=separating)
+                except SongNotFound:
+                    pass
             value = 0.45 + 0.4 * fraction
             if value - last[0] >= 0.01:  # one write per percent is plenty
                 last[0] = value
@@ -210,6 +218,7 @@ class JobStore:
             return not (self.root / song_id / "song.json").exists()
 
         def on_download() -> None:
+            downloading[0] = True
             self._update(song_id, stage="Downloading the Demucs model (first time only)")
 
         try:

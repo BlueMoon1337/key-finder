@@ -107,9 +107,23 @@ def upload(client, data, backend):
     return client.get(f"/api/songs/{res.json()['id']}").json()
 
 
-def test_job_uses_demucs_when_available(client, song_bytes):
+def test_job_uses_demucs_when_available(client, song_bytes, monkeypatch):
     assert client.get("/api/capabilities").json()["demucs"]["installed"] is True
+    from keyfinder import jobs
+
+    stages = []
+    real_update = jobs.JobStore._update
+
+    def spy(self, song_id, **fields):
+        if "stage" in fields:
+            stages.append(fields["stage"])
+        return real_update(self, song_id, **fields)
+
+    monkeypatch.setattr(jobs.JobStore, "_update", spy)
     song = upload(client, song_bytes, "auto")
+    # The first time, the model "downloads", then the stage goes back to separating.
+    i = stages.index("Downloading the Demucs model (first time only)")
+    assert stages[i + 1] == "Separating stems with Demucs"
     assert song["status"] == "ready", song["error"]
     assert song["backend"] == "demucs" and song["warning"] is None
     assert song["stems"] == ["original", "vocals", "drums", "bass", "other"]
