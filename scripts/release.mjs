@@ -77,6 +77,11 @@ async function gh(method, url, body, headers = {}) {
 
 async function uploadAsset(name, data, contentType = 'application/octet-stream') {
   const repo = env('GITHUB_REPOSITORY')
+  // A re-run (after one platform failed) uploads to the same draft: replace what's already there.
+  const existing = await gh('GET', `https://api.github.com/repos/${repo}/releases/${env('RELEASE_ID')}/assets?per_page=100`)
+  for (const asset of existing.filter((a) => a.name === name)) {
+    await gh('DELETE', `https://api.github.com/repos/${repo}/releases/assets/${asset.id}`)
+  }
   const url = `https://uploads.github.com/repos/${repo}/releases/${env('RELEASE_ID')}/assets?name=${encodeURIComponent(name)}`
   await gh('POST', url, data, { 'Content-Type': contentType })
   console.log(`Uploaded ${name}`)

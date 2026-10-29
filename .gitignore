@@ -7,8 +7,8 @@ build/engine-*/
 dist/
 .pytest_cache/
 .ruff_cache/
-data/
-stems/
+/data/
+/stems/
 node_modules/
 dist-electron/
 release/

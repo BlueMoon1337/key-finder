@@ -111,6 +111,9 @@ jobs:
           npm run engine
         env:
           PYTHON: python
+          # Intel Macs have no prebuilt wheel for sphn (a Demucs dependency), so it compiles; its
+          # bundled Opus library declares an old CMake minimum that CMake 4 otherwise refuses.
+          CMAKE_POLICY_VERSION_MINIMUM: '3.5'
       - run: ${{ matrix.dist }}
         env:
           # No Apple / Windows certificates: macOS builds are ad-hoc signed (electron-builder.yml).
