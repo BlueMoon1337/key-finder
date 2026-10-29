@@ -43,6 +43,8 @@ export interface Chord {
   end: number
   root: number | null
   quality: string | null
+  /** A chord tone other than the root in the bass (an inversion, written G/B); null otherwise. */
+  bass?: number | null
   label: string
 }
 

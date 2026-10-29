@@ -85,3 +85,30 @@ def test_chords_from_stems_ignore_drums_and_melody():
     better = chords_from_stems(result, stems, SR)
     assert labels(better["basic"]) == ["D", "G", "A", "D", "G", "A", "D"]  # the two Ds at the loop join merge
     assert chords_from_stems(result, {"vocals": melody, "accompaniment": harmonic}, SR) is None
+
+
+def test_inversions_are_slash_chords_not_other_chords():
+    # C - G/B - Am - F over a walking bass C, B, A, F: the "G/B" used to come out as Bm.
+    from synth import click, tone
+
+    beat = 60 / 92
+    chords_, bass_notes = [(0, 4, 7), (7, 11, 14), (9, 12, 16), (5, 9, 12)], [36, 35, 33, 29]
+    y = np.zeros(int(16 * 3 * beat * SR + SR), dtype=np.float32)
+    k = click()
+    for b in range(48):
+        i = (b // 4) % 4
+        s = int(b * beat * SR)
+        note = sum(0.25 * tone(60 + n, beat) for n in chords_[i]) + 0.45 * tone(bass_notes[i], beat, harmonics=3)
+        y[s:s + note.size] += note
+        y[s:s + k.size] += (0.8 if b % 4 == 0 else 0.5) * k
+    result = analyze_signal(y / np.abs(y).max(), SR)
+    assert labels(result["chords"]["intermediate"])[:4] == ["C", "G/B", "Am", "F"]
+    assert labels(result["chords"]["basic"])[:4] == ["C", "G", "Am", "F"]
+    g = next(c for c in result["chords"]["intermediate"] if c["label"] == "G/B")
+    assert (g["root"], g["quality"], g["bass"]) == (7, "maj", 11)
+
+
+def test_slash_label_spelling():
+    assert chords.chord_label(7, "maj", bass=11) == "G/B"
+    assert chords.chord_label(1, "min", flats=True, bass=8) == "Dbm/Ab"
+    assert chords.chord_label(7, "maj", bass=7) == "G"

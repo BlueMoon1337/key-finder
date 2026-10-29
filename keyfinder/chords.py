@@ -30,14 +30,21 @@ SUFFIX = {"maj": "", "min": "m", "7": "7", "maj7": "maj7", "min7": "m7",
           "dim": "dim", "aug": "aug", "sus2": "sus2", "sus4": "sus4"}
 NO_CHORD = "N"
 # How much a bass note matching the root counts towards a chord.
-BASS_WEIGHT = 0.3
+BASS_WEIGHT = 0.2
+# A bass note on the chord's third or fifth (an inversion, e.g. G/B) counts this share of that.
+INVERSION_SHARE = 0.8
+# The bass note must hold this share of a chord's bass energy to be written as a slash chord.
+SLASH_MIN_SHARE = 0.4
+# Detail levels that write inversions as slash chords (G/B); "basic" keeps plain chords.
+SLASH_LEVELS = ("intermediate", "advanced")
 
 
-def chord_label(root: int | None, quality: str | None, flats: bool = False) -> str:
+def chord_label(root: int | None, quality: str | None, flats: bool = False, bass: int | None = None) -> str:
     if root is None or quality is None:
         return NO_CHORD
     names = PITCH_CLASSES_FLAT if flats else PITCH_CLASSES_SHARP
-    return names[root % 12] + SUFFIX[quality]
+    label = names[root % 12] + SUFFIX[quality]
+    return f"{label}/{names[bass % 12]}" if bass is not None and bass % 12 != root % 12 else label
 
 
 def chord_pitch_classes(root: int, quality: str) -> set[int]:
@@ -77,7 +84,11 @@ def recognize(
     key: dict | None = None,
     self_transition: float = 0.7,
 ) -> list[dict]:
-    """Chord segments ``{start, end, root, quality, label}`` covering the track."""
+    """Chord segments ``{start, end, root, quality, bass, label}`` covering the track.
+
+    ``bass`` is set (and the label is a slash chord, e.g. G/B) when another chord tone
+    is clearly in the bass, at the levels in SLASH_LEVELS.
+    """
     n_frames = chroma.shape[1]
     if n_frames == 0:
         return []
@@ -95,10 +106,13 @@ def recognize(
 
     penalty = np.array([QUALITIES[q][1] for _, q in vocab])
     similarity -= penalty[:, None]
-    # A strong bass note matching the root makes that chord more likely.
+    # A strong bass note on the root makes that chord more likely; on its third or fifth
+    # (an inversion such as G/B) a little less so.
     bass_norm = seg_bass / np.maximum(seg_bass.sum(axis=0, keepdims=True), 1e-9)
     roots = np.array([r for r, _ in vocab])
-    similarity += BASS_WEIGHT * bass_norm[roots]
+    others = [[(r + i) % 12 for i in QUALITIES[q][0][1:3]] for r, q in vocab]
+    inversion = np.stack([bass_norm[o].max(axis=0) for o in others])
+    similarity += BASS_WEIGHT * np.maximum(bass_norm[roots], INVERSION_SHARE * inversion)
     if key is not None:
         diatonic = scale_pitch_classes(key["tonic"], key["mode"])
         in_key = np.array([chord_pitch_classes(r, q) <= diatonic for r, q in vocab])
@@ -137,17 +151,27 @@ def recognize(
 
     flats = bool(key.get("flats")) if key else False
     segments: list[dict] = []
+    spans: list[list[int]] = []  # the beat segments each chord covers
     for i, state in enumerate(path):
         start, end = bounds[i] / fps, bounds[i + 1] / fps
         root, quality = (None, None) if state == len(vocab) else vocab[state]
         if segments and segments[-1]["root"] == root and segments[-1]["quality"] == quality:
             segments[-1]["end"] = round(end, 3)
+            spans[-1].append(i)
             continue
-        segments.append({
-            "start": round(start, 3),
-            "end": round(end, 3),
-            "root": root,
-            "quality": quality,
-            "label": chord_label(root, quality, flats),
-        })
+        segments.append({"start": round(start, 3), "end": round(end, 3), "root": root, "quality": quality})
+        spans.append([i])
+
+    bass_level = np.percentile(seg_bass.sum(axis=0), 95) + 1e-9
+    for seg, span in zip(segments, spans, strict=True):
+        seg["bass"] = None
+        if level in SLASH_LEVELS and seg["root"] is not None:
+            # The chord's bass note over its whole span, when one clearly dominates.
+            profile = seg_bass[:, span].sum(axis=1)
+            note = int(profile.argmax())
+            clear = profile[note] >= SLASH_MIN_SHARE * profile.sum()
+            audible = profile.sum() / len(span) >= 0.1 * bass_level
+            if clear and audible and note != seg["root"] and note in chord_pitch_classes(seg["root"], seg["quality"]):
+                seg["bass"] = note
+        seg["label"] = chord_label(seg["root"], seg["quality"], flats, seg["bass"])
     return segments

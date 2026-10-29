@@ -9,14 +9,21 @@ CHROMA_FFT = 8192
 ONSET_FFT = 2048
 FMIN = 55.0      # A1
 FMAX = 4200.0    # roughly C8; overtones above add little to pitch class
+# The bass chroma needs finer frequency steps: at E1 (41 Hz) semitones are only 2.4 Hz apart.
+BASS_FFT = 16384
+BASS_FMIN = 30.0   # B0, the lowest note of a five-string bass
+BASS_MAX_MIDI = 52.5  # up to E3
 
 
 def frame_times(n_frames: int, sr: int, hop: int = HOP) -> np.ndarray:
     return np.arange(n_frames) * hop / sr
 
 
-def magnitude_spectrogram(y: np.ndarray, n_fft: int, hop: int = HOP) -> np.ndarray:
-    """|STFT| with a Hann window and centred frames, shape ``(1 + n_fft//2, frames)``."""
+def magnitude_spectrogram(y: np.ndarray, n_fft: int, hop: int = HOP, max_bin: int | None = None) -> np.ndarray:
+    """|STFT| with a Hann window and centred frames, shape ``(1 + n_fft//2, frames)``.
+
+    ``max_bin`` keeps only the lowest bins, so a long, fine-resolution transform stays small.
+    """
     y = np.asarray(y, dtype=np.float32)
     y = np.pad(y, n_fft // 2)
     if y.size < n_fft:
@@ -27,10 +34,11 @@ def magnitude_spectrogram(y: np.ndarray, n_fft: int, hop: int = HOP) -> np.ndarr
     )
     window = np.hanning(n_fft).astype(np.float32)
     # Chunk the FFT so long tracks do not allocate one giant complex array.
-    out = np.empty((n_fft // 2 + 1, n_frames), dtype=np.float32)
-    step = 2048
+    bins = n_fft // 2 + 1 if max_bin is None else min(max_bin, n_fft // 2 + 1)
+    out = np.empty((bins, n_frames), dtype=np.float32)
+    step = 2048 if n_fft <= 8192 else 512
     for start in range(0, n_frames, step):
-        out[:, start:start + step] = np.abs(np.fft.rfft(frames[start:start + step] * window, axis=1)).T
+        out[:, start:start + step] = np.abs(np.fft.rfft(frames[start:start + step] * window, axis=1))[:, :bins].T
     return out
 
 
@@ -78,18 +86,38 @@ def _fold(spec: np.ndarray, sr: int, tuning: float, max_midi: float | None = Non
     return fold @ np.log1p(10.0 * spec[valid] / (spec.max() + 1e-9))
 
 
+def bass_chroma(y: np.ndarray, sr: int, tuning: float = 0.0) -> np.ndarray:
+    """Pitch classes of the bass register (B0..E3), used to find chord roots and inversions.
+
+    A low bass note's fifth (its third harmonic) can be as loud as its root, so unlike the
+    main chroma this keeps magnitudes linear and favours lower frequencies, letting the
+    fundamental win. A finer transform resolves the low semitones.
+    """
+    f_max = 440.0 * 2 ** ((BASS_MAX_MIDI + tuning - 69) / 12)
+    max_bin = int(np.ceil(f_max * BASS_FFT / sr)) + 1
+    spec = magnitude_spectrogram(y, BASS_FFT, max_bin=max_bin)
+    freqs = np.fft.rfftfreq(BASS_FFT, 1.0 / sr)[:max_bin]
+    valid = (freqs >= BASS_FMIN) & (freqs <= f_max)
+    midi = 69.0 + 12.0 * np.log2(freqs[valid] / 440.0) - tuning
+    nearest = np.round(midi)
+    weight = np.clip(1.0 - 2.0 * np.abs(midi - nearest), 0.0, 1.0)
+    fold = np.zeros((12, int(valid.sum())), dtype=np.float32)
+    fold[nearest.astype(int) % 12, np.arange(nearest.size)] = weight
+    tilt = (freqs[valid] / BASS_FMIN) ** -1.0  # -6 dB per octave: fundamentals over overtones
+    return fold @ (spec[valid] * tilt[:, None].astype(np.float32))
+
+
 def pitch_features(y: np.ndarray, sr: int, tuning: float | None = None) -> dict:
     """Chroma (rows C, C#, ..., B per frame), bass chroma and the tuning offset.
 
-    Log compression before folding makes the profile fairly robust to timbre.
-    The bass chroma covers only A1..E3 and is used to find chord roots.
+    Log compression before folding makes the chroma fairly robust to timbre.
     """
     spec = magnitude_spectrogram(y, CHROMA_FFT)
     if tuning is None:
         tuning = estimate_tuning(spec, sr)
     return {
         "chroma": _fold(spec, sr, tuning),
-        "bass": _fold(spec, sr, tuning, max_midi=52.5 + tuning),
+        "bass": bass_chroma(y, sr, tuning),
         "tuning": float(tuning),
     }
 

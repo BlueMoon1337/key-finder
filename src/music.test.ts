@@ -45,6 +45,11 @@ describe('chords', () => {
     expect(chordLabel({ root: 7, quality: '7' }, 3, true)).toBe('Bb7')
     expect(chordLabel({ root: 7, quality: '7' }, 3, false)).toBe('A#7')
     expect(chordLabel({ root: null, quality: null }, 3, false)).toBe('N.C.')
+    // Inversions keep their bass note through transposition.
+    expect(chordLabel({ root: 7, quality: 'maj', bass: 11 }, 0, false)).toBe('G/B')
+    expect(chordLabel({ root: 7, quality: 'maj', bass: 11 }, 2, false)).toBe('A/C#')
+    expect(chordLabel({ root: 7, quality: 'maj', bass: 11 }, 3, true)).toBe('Bb/D')
+    expect(chordLabel({ root: 7, quality: 'maj', bass: null }, 0, false)).toBe('G')
   })
 
   it('finds the chord and beat at a time', () => {

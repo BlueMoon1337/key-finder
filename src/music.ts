@@ -41,10 +41,14 @@ export function relativeKey(tonic: number, mode: Key['mode']) {
   return mode === 'major' ? keyName(tonic + 9, 'minor') : keyName(tonic + 3, 'major')
 }
 
-/** A chord's name after transposing by `shift` semitones; "N.C." for no chord. */
-export function chordLabel(chord: Pick<Chord, 'root' | 'quality'>, shift: number, flats: boolean) {
+/** A chord's name after transposing by `shift` semitones (G/B for an inversion); "N.C." for no chord. */
+export function chordLabel(chord: Pick<Chord, 'root' | 'quality' | 'bass'>, shift: number, flats: boolean) {
   if (chord.root === null || chord.quality === null) return 'N.C.'
-  return (flats ? FLAT : SHARP)[mod12(chord.root + shift)] + (SUFFIX[chord.quality] ?? '')
+  const names = flats ? FLAT : SHARP
+  const name = names[mod12(chord.root + shift)] + (SUFFIX[chord.quality] ?? '')
+  return chord.bass === null || chord.bass === undefined || mod12(chord.bass) === mod12(chord.root)
+    ? name
+    : `${name}/${names[mod12(chord.bass + shift)]}`
 }
 
 /** "Ab major" → "Ab major" moved by `shift` semitones, as the library shows it. */
