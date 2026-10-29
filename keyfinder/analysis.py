@@ -23,6 +23,34 @@ def chord_levels(y: np.ndarray, sr: int, beats: list[float], detected_key: dict,
     }
 
 
+def downbeats_from_chords(beats: list[float], segments: list[dict], current: list[float],
+                         beats_per_bar: int = 4) -> list[float]:
+    """Downbeats moved to where the chords change, when the chords say so clearly.
+
+    Chords mostly change on the first beat of a bar, which is more reliable than the
+    low-frequency accents the first guess comes from (a live mix can easily mislead those).
+    Keeps ``current`` when there are too few changes or no clear winner.
+    """
+    if len(beats) < 2 * beats_per_bar:
+        return current
+    times = np.asarray(beats)
+    votes = np.zeros(beats_per_bar)
+    for seg in segments[1:]:
+        if seg["root"] is None:
+            continue
+        i = int(np.argmin(np.abs(times - seg["start"])))
+        if abs(times[i] - seg["start"]) < 0.15:
+            votes[i % beats_per_bar] += 1
+    if votes.sum() < 8:
+        return current
+    phase = int(votes.argmax())
+    current_phase = int(np.argmin(np.abs(times - current[0]))) % beats_per_bar if current else -1
+    # Move only when the chords clearly prefer another phase.
+    if phase != current_phase and votes[phase] >= 0.4 * votes.sum() and votes[phase] >= 1.5 * votes[current_phase]:
+        return [round(float(t), 3) for t in times[phase::beats_per_bar]]
+    return current
+
+
 def analyze_signal(y: np.ndarray, sr: int = audio.ANALYSIS_SR) -> dict:
     fps = sr / features.HOP
     pitch = features.pitch_features(y, sr)
@@ -35,6 +63,7 @@ def analyze_signal(y: np.ndarray, sr: int = audio.ANALYSIS_SR) -> dict:
     refined = key.refine_with_chords(detected, levels["basic"])
     if refined["name"] != detected["name"]:
         levels = chord_levels(y, sr, rhythm["beats"], refined, pitch["tuning"])
+    rhythm["downbeats"] = downbeats_from_chords(rhythm["beats"], levels["basic"], rhythm["downbeats"])
     return {
         "duration": round(y.size / sr, 3),
         "tuning_cents": round(100.0 * pitch["tuning"], 1),

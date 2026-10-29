@@ -39,3 +39,38 @@ def test_silence_does_not_crash():
     fps = SR / features.HOP
     result = tempo.analyze_rhythm(features.onset_strength(y, SR), features.onset_strength(y, SR, max_freq=200), fps)
     assert result["beats"] == []
+
+
+def test_downbeats_follow_chord_changes():
+    from keyfinder.analysis import downbeats_from_chords
+
+    beats = [round(0.5 * i, 3) for i in range(40)]
+    # Chords change on every 4th beat starting at beat index 3; the first guess said index 0.
+    segments = [{"start": 0.0, "root": 0}] + [{"start": beats[i], "root": i % 12} for i in range(3, 40, 4)]
+    assert downbeats_from_chords(beats, segments, beats[0::4]) == beats[3::4]
+    # A guess the chords agree with is kept, and so is any guess when the chords are unclear.
+    assert downbeats_from_chords(beats, segments, beats[3::4]) == beats[3::4]
+    few = segments[:4]
+    assert downbeats_from_chords(beats, few, beats[0::4]) == beats[0::4]
+
+
+def test_misleading_accents_are_corrected_by_chords():
+    # Accented hits on beat 2 of each bar while the chords change on beat 1.
+    from synth import tone
+
+    from keyfinder.analysis import analyze_signal
+
+    y = progression([(0, "maj"), (5, "maj"), (7, "maj"), (9, "min")], bpm=100, drums=False, repeats=3)
+    k = click()
+    beat = 60 / 100
+    for b in range(48):
+        s = int(b * beat * SR)
+        if b % 4 == 1:
+            low = tone(31, 0.3, harmonics=2) * 2.5
+            y[s:s + low.size] += low[: y.size - s]
+        y[s:s + k.size] += (1.5 if b % 4 == 1 else 0.3) * k[: y.size - s]
+    result = analyze_signal(y / np.abs(y).max(), SR)
+    beats = np.array(result["beats"])
+    changes = [c["start"] for c in result["chords"]["basic"][1:] if c["root"] is not None]
+    on_downbeat = sum(min(abs(np.array(result["downbeats"]) - t)) < 0.15 for t in changes)
+    assert on_downbeat >= 0.8 * len(changes), (result["downbeats"][:4], changes[:4], beats[:6])

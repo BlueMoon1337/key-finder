@@ -179,7 +179,8 @@ class JobStore:
                 self._update(song_id, stage="Reading the chords from the stems", progress=0.85)
                 better = analysis.chords_from_stems(result, separated, sr)
                 if better:
-                    result = {**result, "chords": better}
+                    downbeats = analysis.downbeats_from_chords(result["beats"], better["basic"], result["downbeats"])
+                    result = {**result, "chords": better, "downbeats": downbeats}
                     self._update(song_id, analysis=result)
                 self._update(song_id, stage="Encoding stems", progress=0.87)
                 for name, data in separated.items():
