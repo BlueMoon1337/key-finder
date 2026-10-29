@@ -33,7 +33,7 @@ def test_profiles_pick_their_own_key():
     ([(6, "maj"), (11, "maj"), (1, "7"), (6, "maj")], "F# major"),
     ([(3, "maj"), (0, "min"), (5, "min"), (10, "7")], "Eb major"),
     ([(7, "min"), (3, "maj"), (10, "maj"), (2, "7")], "G minor"),
-    ([(11, "min"), (7, "maj"), (2, "maj"), (9, "maj")], "B minor"),
+    ([(11, "min"), (4, "min"), (6, "maj"), (11, "min")], "B minor"),
 ])
 def test_detect_key_on_progressions(chords, expected):
     assert analyze_signal(progression(chords, repeats=3), SR)["key"]["name"] == expected
@@ -50,8 +50,9 @@ def test_tuning_offset_is_detected():
 
 
 def test_real_songs_whose_chords_overrule_the_profile():
-    # Profiles and chord timelines captured from two recordings (tests/data). Their pitch
-    # profiles alone point to A minor and F minor; the chords sit on Dm and Eb.
+    # Profiles and chord timelines captured from three recordings (tests/data). Their pitch
+    # profiles alone point elsewhere; the chords (and, for two, published chord charts) say
+    # D minor, Eb major and F minor.
     import json
     from pathlib import Path
 
@@ -61,3 +62,9 @@ def test_real_songs_whose_chords_overrule_the_profile():
         k = key.detect_key(np.tile(profile[:, None], (1, 4)))
         assert k["name"] == case["profile_key"], name
         assert key.refine_with_chords(k, case["chords"])["name"] == case["expected"], name
+
+
+def test_relative_key_ambiguity_gives_one_of_the_pair():
+    # Bm - G - D - A is i-VI-III-VII in B minor and vi-IV-I-V in D major: either is a fair reading.
+    name = analyze_signal(progression([(11, "min"), (7, "maj"), (2, "maj"), (9, "maj")], repeats=3), SR)["key"]["name"]
+    assert name in ("B minor", "D major")

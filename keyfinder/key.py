@@ -111,36 +111,61 @@ def detect_key(chroma: np.ndarray) -> dict:
     }
 
 
-# How much time on a key's home chord counts against the pitch-class profile (see refine_with_chords).
+# How chords sit in a key: the usual weight of each chord, by its root above the tonic and
+# whether it's major or minor. Common practice, not corpus statistics: in major, I then IV and
+# V, then vi, ii, iii and a borrowed bVII; in minor, i, then the VI and VII that minor songs
+# lean on, iv, V (from the harmonic minor), III and v.
+MAJOR_KEY_CHORDS = {(0, "maj"): 1.0, (5, "maj"): 0.6, (7, "maj"): 0.6, (9, "min"): 0.45, (2, "min"): 0.3,
+                    (4, "min"): 0.15, (10, "maj"): 0.1}
+MINOR_KEY_CHORDS = {(0, "min"): 1.0, (8, "maj"): 0.5, (10, "maj"): 0.5, (5, "min"): 0.45, (7, "maj"): 0.4,
+                    (3, "maj"): 0.4, (7, "min"): 0.25}
+# How much the chord fit counts against the pitch-class profile, and the nudge for a key whose
+# home chord starts or ends the song.
 KEY_CHORD_WEIGHT = 1.5
+FIRST_LAST_BONUS = 0.05
+_TRIAD = {"maj": "maj", "7": "maj", "maj7": "maj", "min": "min", "min7": "min"}
+
+
+def chord_fit(durations: dict[tuple[int, str], float], tonic: int, mode: str) -> float:
+    """Cosine similarity between a song's chord time (by root and major/minor) and a key's usual chords."""
+    template = MAJOR_KEY_CHORDS if mode == "major" else MINOR_KEY_CHORDS
+    weights = np.array(list(template.values()))
+    used = np.array([durations.get(((r + tonic) % 12, q), 0.0) for r, q in template])
+    norm = np.sqrt(sum(v * v for v in durations.values())) * np.linalg.norm(weights)
+    return float(used @ weights / norm) if norm else 0.0
 
 
 def refine_with_chords(key: dict, segments: list[dict]) -> dict:
     """Choose the key using the chord sequence as well as the pitch-class profile.
 
-    Profiles can mislead: relative keys share every note (B minor and D major), and a minor
-    song's major dominant (A in D minor) pulls towards the key a fifth up. But songs dwell
-    on, start on and end on their home chord. Every key is scored by its profile match plus
-    KEY_CHORD_WEIGHT times its home chord's share of the song (and a little for being the
-    first or last chord); the best one wins.
+    Profiles mislead in two common ways: relative keys share every note (B minor and D major),
+    and minor songs that lean on their VII and VI chords (Fm - Eb - Db) or use a major V (A in
+    D minor) pull the profile towards another key. So a key's profile score is the better of
+    its own and its relative's, and the chords decide: each key adds KEY_CHORD_WEIGHT times how
+    well the song's chord time fits that key's usual chords (chord_fit), plus a nudge when its
+    home chord starts or ends the song.
     """
     chords = [s for s in segments if s.get("root") is not None]
     if not chords or not key.get("profile"):
         return key
-    total = sum(s["end"] - s["start"] for s in chords) or 1.0
-
-    def tonic_weight(tonic: int, mode: str) -> float:
-        def is_tonic(seg: dict) -> bool:
-            minor = seg["quality"] in ("min", "min7")
-            return seg["root"] == tonic and minor == (mode == "minor")
-        weight = sum(s["end"] - s["start"] for s in chords if is_tonic(s)) / total
-        return weight + 0.15 * is_tonic(chords[0]) + 0.15 * is_tonic(chords[-1])
-
+    durations: dict[tuple[int, str], float] = {}
+    for seg in chords:
+        triad = (seg["root"], _TRIAD.get(seg["quality"], seg["quality"]))
+        durations[triad] = durations.get(triad, 0.0) + seg["end"] - seg["start"]
     scores = key_scores(np.asarray(key["profile"], dtype=float))
-    best = max(
-        ((tonic, mode) for mode in ("major", "minor") for tonic in range(12)),
-        key=lambda k: scores[0 if k[1] == "major" else 1, k[0]] + KEY_CHORD_WEIGHT * tonic_weight(*k),
-    )
+
+    def profile(tonic: int, mode: str) -> float:
+        rel_tonic, rel_mode = relative_key(tonic, mode)
+        return max(scores[0 if mode == "major" else 1, tonic], scores[0 if rel_mode == "major" else 1, rel_tonic])
+
+    def is_home(seg: dict, tonic: int, mode: str) -> bool:
+        return seg["root"] == tonic and _TRIAD.get(seg["quality"]) == ("min" if mode == "minor" else "maj")
+
+    def total(tonic: int, mode: str) -> float:
+        ends = is_home(chords[0], tonic, mode) + is_home(chords[-1], tonic, mode)
+        return profile(tonic, mode) + KEY_CHORD_WEIGHT * chord_fit(durations, tonic, mode) + FIRST_LAST_BONUS * ends
+
+    best = max(((tonic, mode) for mode in ("major", "minor") for tonic in range(12)), key=lambda k: total(*k))
     if best == (key["tonic"], key["mode"]):
         return key
     tonic, mode = best
