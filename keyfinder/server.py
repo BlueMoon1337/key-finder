@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from . import __version__, neural, remote, separation, transform
+from . import __version__, neural, player_export, remote, separation, transform
 from .jobs import ORIGINAL, JobStore, SongNotFound
 
 MAX_UPLOAD_BYTES = int(os.environ.get("KEYFINDER_MAX_UPLOAD_MB", "500")) * 1024 * 1024
@@ -218,14 +218,7 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
             path = shifted
         return FileResponse(path, media_type="audio/mpeg", headers={"Cache-Control": "max-age=86400"})
 
-    @app.get("/api/songs/{song_id}/export")
-    def export(
-        song_id: str,
-        semitones: int = Query(0, ge=-12, le=12),
-        speed: float = Query(1.0, ge=transform.MIN_SPEED, le=transform.MAX_SPEED),
-        volumes: str = Query("", description="comma-separated stem:volume pairs, e.g. vocals:0,drums:0.5"),
-        format: str = Query("mp3", pattern="^(mp3|wav|m4a)$"),
-    ):
+    def ready_song(song_id: str) -> tuple[dict, Path]:
         try:
             song = store.get(song_id)
             folder = store.song_dir(song_id)
@@ -233,6 +226,33 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
             raise not_found(exc) from exc
         if song["status"] != "ready":
             raise HTTPException(409, "song is still processing")
+        return song, folder
+
+    @app.get("/api/songs/{song_id}/export/player-name")
+    def player_package_name(song_id: str, semitones: int = Query(0, ge=-12, le=12),
+                            speed: float = Query(1.0, ge=transform.MIN_SPEED, le=transform.MAX_SPEED)):
+        """The name the Player package must keep: Player reads the key and tempo from it."""
+        song, _ = ready_song(song_id)
+        return {"name": player_export.package_name(song, semitones, speed) + ".zip"}
+
+    @app.get("/api/songs/{song_id}/export")
+    def export(
+        song_id: str,
+        semitones: int = Query(0, ge=-12, le=12),
+        speed: float = Query(1.0, ge=transform.MIN_SPEED, le=transform.MAX_SPEED),
+        volumes: str = Query("", description="comma-separated stem:volume pairs, e.g. vocals:0,drums:0.5"),
+        format: str = Query("mp3", pattern="^(mp3|wav|m4a|player)$"),
+    ):
+        song, folder = ready_song(song_id)
+        exports = folder / "exports"
+        exports.mkdir(exist_ok=True)
+        if format == "player":
+            # Every stem separately, with a click on the song's beats, for Player (volumes don't apply).
+            dest = exports / f"player-{os.getpid()}-{threading.get_ident()}.zip"
+            player_export.build(song, folder, dest, semitones, speed)
+            return FileResponse(dest, media_type="application/zip",
+                                filename=player_export.package_name(song, semitones, speed) + ".zip",
+                                background=BackgroundTask(dest.unlink, missing_ok=True))
         stems = [s for s in song["stems"] if s != ORIGINAL] or [ORIGINAL]
         levels: dict[str, float] = {}
         for pair in filter(None, volumes.split(",")):
@@ -243,8 +263,6 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
                 levels[name] = float(value)
             except ValueError as exc:
                 raise HTTPException(400, f"bad volume for {name!r}") from exc
-        exports = folder / "exports"
-        exports.mkdir(exist_ok=True)
         dest = exports / f"export-{os.getpid()}-{threading.get_ident()}.{format}"
         try:
             transform.mixdown({s: folder / "stems" / f"{s}.mp3" for s in stems}, levels, dest, semitones, speed)

@@ -10,6 +10,7 @@ A practice app for musicians, for macOS and Windows. Add a song and KeyFinder:
 - lets you **change the key** (±12 semitones, and the chords transpose with it) and the **speed** (50–150 %, without changing the pitch)
 - has a **metronome that follows the song's own beats**, a one-bar **count-in** and **A–B loops** that snap to beats
 - **exports** your mix (the song without vocals, two semitones down at 80 %, say) as MP3, WAV or M4A
+- **exports stems for [Player](https://github.com/BlueMoon1337/Player)**, the multitrack player: every stem, a click track on the song's own beats, the key and the tempo (see [Exporting for Player](#exporting-for-player))
 
 ## Using it
 
@@ -29,6 +30,21 @@ You can also drop files anywhere on the window, open them with KeyFinder from Fi
 In the player, **Space** plays and pauses, **← / →** move 5 seconds, **[ / ]** change the key, **L** turns the loop on and off and **M** the metronome. **⌘↑ / ⌘↓** (Ctrl on Windows) change the speed. Drag across the waveform to loop a section.
 
 **Profile** shows library statistics, the defaults for new songs (how to split them, and the chord detail), the library folder, and updates.
+
+### Exporting for Player
+
+In the player's **Practice** panel, choose **Stems for Player** and **Export Stems…**. KeyFinder writes a zip laid out like a MultiTracks.com download, which Player imports as one song (drop it on Player's window, or **File ▸ Import Songs…**):
+
+| In the zip | What Player does with it |
+| --- | --- |
+| Its name, `Title-Artist-Key-BPMbpm.zip` (e.g. `Yo Venceré-Danilo Montero-Cm-156.00bpm.zip`) | Title, key and tempo. Keep the name as it is: it's the only place Player reads the key from. The artist goes where MultiTracks put the album. |
+| `MultiTracks/Vocals.wav`, `Drums.wav`, `Bass.wav`… | One channel per stem, each on its bus (vocals, drums, bass, piano, guitar). |
+| `MultiTracks/Click Track.wav` | The song's click, on the beats KeyFinder found, accented on each bar. It follows a live performance's tempo, which a click from one BPM can't. It goes to Player's Click bus. |
+| `MultiTracks/Reference.wav` | The original mix, for Player's **Reference Track** setting. |
+| Tags in each WAV | Title and artist, the tempo and 4/4, and for a song that changes key, a section at each key change ("D minor", "C minor"). |
+| `Album.jpg` | The cover. |
+
+The export uses the pitch and speed you hear, so a song exported two semitones down at 90 % arrives in Player in its new key and tempo. The mixer's levels don't apply: Player mixes the stems itself. The stems are 16-bit WAVs, about 10 MB a minute each.
 
 The library lives in `Documents/KeyFinder Library`: one folder per song, with its stems, analysis and artwork.
 
@@ -156,3 +172,5 @@ The engine's HTTP API, used by the interface:
 | `GET` | `/api/songs/{id}/cover` | its artwork |
 | `GET` | `/api/songs/{id}/stems/{stem}?semitones=n` | a stem, optionally in another key |
 | `GET` | `/api/songs/{id}/export?semitones=&speed=&volumes=vocals:0,drums:0.5&format=mp3` | a rendered mix |
+| `GET` | `/api/songs/{id}/export?semitones=&speed=&format=player` | the stems package for Player (a zip) |
+| `GET` | `/api/songs/{id}/export/player-name?semitones=&speed=` | the package's file name |

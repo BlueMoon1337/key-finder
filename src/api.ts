@@ -178,7 +178,8 @@ export interface ExportOptions {
   semitones: number
   speed: number
   volumes: Record<string, number>
-  format: 'mp3' | 'wav' | 'm4a'
+  /** 'player': every stem as a WAV, with a click on the song's beats, zipped for Player. */
+  format: 'mp3' | 'wav' | 'm4a' | 'player'
 }
 
 export function exportPath(id: string, o: ExportOptions) {
@@ -192,6 +193,12 @@ export function exportPath(id: string, o: ExportOptions) {
   })
   return `/api/songs/${id}/export?${q}`
 }
+
+/** The Player package's file name. Player reads the key and tempo from it, so it must be kept. */
+export const playerPackageName = (id: string, semitones: number, speed: number) =>
+  request<{ name: string }>(`/api/songs/${id}/export/player-name?${new URLSearchParams({ semitones: String(semitones), speed: String(speed) })}`).then(
+    (r) => r.name,
+  )
 
 /** Saves something the API makes: a Save dialog on the desktop, a download in a browser. */
 export async function saveFromApi(path: string, suggestedName: string): Promise<string | null> {

@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
-import { type Chord, type ChordLevel, type Song, coverUrl, editSong, exportPath, getSong, saveFromApi } from '../api'
+import { type Chord, type ChordLevel, type ExportOptions, type Song, coverUrl, editSong, exportPath, getSong, playerPackageName, saveFromApi } from '../api'
 import { beatInBar, beatIndexAt, camelot, chordIndexAt, chordLabel, formatTime, keyName, keySectionAt, keyUsesFlats, relativeKey } from '../music'
 import { MAX_SPEED, MIN_SPEED, playback } from '../playback'
 import { errorMessage, loadSong, navigate, refreshLibrary, toast, updateSettings, useApp } from '../store'
@@ -380,7 +380,7 @@ function Practice({ song }: { song: Song }) {
   const countIn = usePlayback((p) => p.countIn)
   const loop = usePlayback((p) => p.loop)
   const level = useApp((s) => s.settings.chordLevel)
-  const [format, setFormat] = useState<'mp3' | 'wav' | 'm4a'>('mp3')
+  const [format, setFormat] = useState<ExportOptions['format']>('mp3')
   const [exporting, setExporting] = useState(false)
 
   const exportMix = async () => {
@@ -393,8 +393,8 @@ function Practice({ song }: { song: Song }) {
         .filter(([, v]) => v === 0)
         .map(([k]) => `no ${k}`),
     ].filter(Boolean)
-    const name = `${song.title}${parts.length ? ` (${parts.join(', ')})` : ''}.${format}`
     try {
+      const name = format === 'player' ? await playerPackageName(song.id, semitones, speed) : `${song.title}${parts.length ? ` (${parts.join(', ')})` : ''}.${format}`
       const saved = await saveFromApi(exportPath(song.id, { semitones, speed, volumes: gains, format }), name)
       if (saved) toast(`Exported ${name}`)
     } catch (e) {
@@ -468,12 +468,17 @@ function Practice({ song }: { song: Song }) {
             <option value="mp3">MP3</option>
             <option value="wav">WAV</option>
             <option value="m4a">M4A</option>
+            <option value="player">Stems for Player</option>
           </select>
           <button className="pill-btn accent" disabled={exporting} onClick={() => void exportMix()}>
-            {exporting ? 'Rendering…' : 'Export Mix…'}
+            {exporting ? 'Rendering…' : format === 'player' ? 'Export Stems…' : 'Export Mix…'}
           </button>
         </div>
-        <span className="hint">Uses the mixer, pitch and speed you hear now.</span>
+        <span className="hint">
+          {format === 'player'
+            ? 'A zip of every stem with a click on the song’s beats, in the pitch and speed you hear now. Import it in Player as it is: its name gives Player the key and tempo.'
+            : 'Uses the mixer, pitch and speed you hear now.'}
+        </span>
       </div>
     </section>
   )
