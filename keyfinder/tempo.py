@@ -438,3 +438,82 @@ def beats_from_click(y: np.ndarray, sr: int, bpm_hint: float | None = None) -> d
                 result["downbeats"] = [round(beats[i], 3) for i in downs]
                 result["beats_per_bar"] = per_bar
     return result
+
+
+def tempo_changes(beats: list[float], tolerance: float = 0.03, hold: int = 8) -> list[dict]:
+    """The beats' tempo as changes from one steady tempo to the next: ``[{"start", "bpm"}]``.
+
+    A change is where the tempo (the median over nine beats, which rides over a beat tracker's
+    jitter) leaves the current one by more than ``tolerance`` and stays out for ``hold`` beats.
+    Each tempo is the one that fits its beats best, so the beats a player counts from it land
+    where the song's do. The first starts at 0.
+    """
+    times = np.asarray(beats, dtype=float)
+    if times.size < 3:
+        return [{"start": 0.0, "bpm": round(60.0 / float(np.diff(times).mean()), 2)}] if times.size == 2 else []
+    gaps = np.diff(times)
+    half = 4
+    local = np.array([np.median(gaps[max(0, i - half):i + half + 1]) for i in range(gaps.size)])
+    cuts = [0]
+    ref = float(np.median(local[:hold]))
+    i = 0
+    while i < local.size:
+        if abs(local[i] - ref) / ref > tolerance and np.all(np.abs(local[i:i + hold] - ref) / ref > tolerance) \
+                and i + hold <= local.size:
+            new = float(np.median(gaps[min(i + half, gaps.size - 1):i + half + hold]))
+            # The smoothed tempo turns a few beats early or late: the change is on the beat that
+            # best splits the raw beat lengths around here into the old tempo and the new.
+            lo, hi = max(cuts[-1] + 1, i - half - 2), min(gaps.size, i + hold + half)
+            window = gaps[lo:hi]
+            costs = [((window[:k - lo] - ref) ** 2).sum() + ((window[k - lo:] - new) ** 2).sum() for k in range(lo, hi)]
+            cut = lo + int(np.argmin(costs))
+            cuts.append(cut)
+            ref = new
+            i = max(cut + 1, i + hold)
+            continue
+        i += 1
+    cuts.append(gaps.size)
+    out: list[dict] = []
+    for a, b in zip(cuts[:-1], cuts[1:], strict=True):
+        seg = times[a:b + 1]
+        if seg.size < 2:
+            continue
+        period = np.polyfit(np.arange(seg.size), seg, 1)[0] if seg.size > 2 else seg[1] - seg[0]
+        bpm = round(60.0 / float(period), 2)
+        if out and abs(out[-1]["bpm"] - bpm) / bpm < 0.01:
+            continue
+        out.append({"start": round(float(times[a]), 3), "bpm": bpm})
+    if out:
+        out[0]["start"] = 0.0
+    return out
+
+
+def meter_changes(beats: list[float], downbeats: list[float], beats_per_bar: int = 4) -> list[dict]:
+    """How many beats each bar has, as changes: ``[{"start", "beats"}]``, the first at 0.
+
+    A bar runs from one downbeat to the next, so a bar that's stretched or cut short where the
+    downbeats shift (between sections, say) is a bar of its own length, as the click plays it.
+    """
+    times = np.asarray(beats, dtype=float)
+    if not downbeats or times.size == 0:
+        return [{"start": 0.0, "beats": beats_per_bar}]
+    idx = sorted({int(np.argmin(np.abs(times - d))) for d in downbeats})
+    out: list[dict] = []
+    for a, b in zip(idx[:-1], idx[1:], strict=True):
+        n = b - a
+        if 1 <= n <= 32 and (not out or out[-1]["beats"] != n):
+            out.append({"start": round(float(times[a]), 3), "beats": n})
+    if not out:
+        out = [{"start": 0.0, "beats": beats_per_bar}]
+    out[0]["start"] = 0.0
+    return out
+
+
+def beat_map(beats: list[float], downbeats: list[float], beats_per_bar: int = 4) -> dict:
+    """Where bar 1 falls, the tempo changes and the bar lengths, for Player and the interface."""
+    offset = downbeats[0] if downbeats else (beats[0] if beats else 0.0)
+    return {
+        "offset": round(float(offset), 3),
+        "tempos": tempo_changes(beats),
+        "meters": meter_changes(beats, downbeats, beats_per_bar),
+    }

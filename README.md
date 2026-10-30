@@ -75,8 +75,13 @@ In the player's **Practice** panel, choose **Stems for Player** and **Export Ste
 | `MultiTracks/Vocals.wav`, `Drums.wav`, `Bass.wav`… | One channel per stem, each on its bus (vocals, drums, bass, piano, guitar). A song that came in stems keeps its stems' names (`EG 1`, `BGVs`, `Guide`). |
 | `MultiTracks/Click Track.wav` | The song's click, on the beats KeyFinder found, accented on each bar. It follows a live performance's tempo, which a click from one BPM can't. It goes to Player's Click bus. A song that came with its own click sends that one. |
 | `MultiTracks/Reference.wav` | The original mix, for Player's **Reference Track** setting. |
-| Tags in each WAV | Title and artist, "KeyFinder" as the software, the tempo and 4/4, and for a song that changes key, a section at each key change ("D minor", "C minor"). |
+| Tags in each WAV | Title and artist, "KeyFinder" as the software, the tempo and 4/4, and for a song that changes key or tempo, a section at each change ("D minor", "120 BPM", "C minor · 120 BPM"). |
+| A beat map in each WAV (a `bmap` chunk) | Where bar 1 falls, every tempo change and every change in bar length, which Player lists in **Song Settings ▸ Tempo Changes** and **Time Changes**. Its click, bar lines, jumps at the next bar and count-ins follow them. |
 | `Album.jpg` | The cover. |
+
+The beat map is finer than the [tempo sections](#tempo-changes): it's read from the beats as they were tracked (in each tempo section at its own tempo), and records every move of more than 3 % that stays for eight beats, so Player's click follows a band that settles a little faster after a bridge, while a live performance's drift stays one tempo. A bar runs from one downbeat to the next, so a bar stretched or cut short where the downbeats shift is a time signature change of its own, as the click plays it. The player's **Tempo** figure counts these changes (when the song has no tempo sections, which it shows instead) and the bar lengths, and lists each one when you point at it.
+
+The `bmap` chunk is JSON, with times in seconds: `{"version": 1, "offset": 0.52, "tempos": [[0, 156.0], [95.3, 150.2]], "meters": [[0, 4, 4], [61.0, 2, 4]]}`.
 
 The export uses the pitch and speed you hear, so a song exported two semitones down at 90 % arrives in Player in its new key and tempo. The mixer's levels don't apply: Player mixes the stems itself. The stems are 16-bit WAVs, about 10 MB a minute each.
 

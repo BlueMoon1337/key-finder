@@ -86,6 +86,14 @@ export interface Analysis {
   waveform: number[]
   /** For a song that arrived as stems: where the beats, key and tempo came from. */
   sources?: { beats: 'click' | 'audio'; key: 'name' | 'audio'; bpm: 'name' | 'audio' }
+  /** Bar 1, the tempo changes and the bar lengths (beats per bar), from the beats; sent with the song. */
+  beat_map?: BeatMap
+}
+
+export interface BeatMap {
+  offset: number
+  tempos: { start: number; bpm: number }[]
+  meters: { start: number; beats: number }[]
 }
 
 /** What a stem is, by Player's buses (plus the reference mix). */

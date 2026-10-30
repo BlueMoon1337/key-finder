@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
-import { type Chord, type ChordLevel, type ExportOptions, type Song, coverUrl, editSong, exportPath, getSong, playerPackageName, saveFromApi } from '../api'
+import { type BeatMap, type Chord, type ChordLevel, type ExportOptions, type Song, coverUrl, editSong, exportPath, getSong, playerPackageName, saveFromApi } from '../api'
 import { STEM_KINDS, beatInBar, beatIndexAt, camelot, chordIndexAt, chordLabel, formatTime, keyName, keySectionAt, keyUsesFlats, orderStems, relativeKey } from '../music'
 import { MAX_SPEED, MIN_SPEED, playback } from '../playback'
 import { errorMessage, loadSong, navigate, refreshLibrary, toast, updateSettings, useApp } from '../store'
@@ -117,7 +117,8 @@ function Player({ song }: { song: Song }) {
         <Stat
           label="Tempo"
           value={(bpm * speed).toFixed(speed === 1 ? 1 : 0)}
-          sub={tempoSub}
+          sub={`${tempoSub}${changesNote(a.beat_map, !!tempos)}`}
+          title={changesList(a.beat_map, speed)}
         >
           <TempoFix song={song} />
         </Stat>
@@ -138,9 +139,30 @@ function Player({ song }: { song: Song }) {
   )
 }
 
-function Stat({ label, value, sub, children }: { label: string; value: string; sub: string; children?: ReactNode }) {
+/**
+ * " · 2 tempo changes · bars of 4 and 3": what changes through the song, if anything. With tempo
+ * sections the card already says where the tempo changes, so only the bars are added.
+ */
+function changesNote(m: BeatMap | undefined, hasSections: boolean): string {
+  if (!m) return ''
+  const tempos = hasSections ? 0 : m.tempos.length - 1
+  const bars = [...new Set(m.meters.map((x) => x.beats))]
+  return `${tempos > 0 ? ` · ${tempos} tempo change${tempos === 1 ? '' : 's'}` : ''}${bars.length > 1 ? ` · bars of ${bars.join(', ')}` : ''}`
+}
+
+/** Each change and where it starts (at the speed you hear), for the tempo's tooltip. */
+function changesList(m: BeatMap | undefined, speed: number): string | undefined {
+  if (!m || (m.tempos.length < 2 && m.meters.length < 2)) return undefined
+  const at = (t: number) => formatTime(t / speed)
+  return [
+    ...m.tempos.map((t) => `${at(t.start)}  ${(t.bpm * speed).toFixed(1)} BPM`),
+    ...m.meters.map((x) => `${at(x.start)}  ${x.beats}/4`),
+  ].join('\n')
+}
+
+function Stat({ label, value, sub, title, children }: { label: string; value: string; sub: string; title?: string; children?: ReactNode }) {
   return (
-    <div className="stat">
+    <div className="stat" title={title}>
       <span className="label">{label}</span>
       <span className="value">{value}</span>
       <span className="sub">{sub}</span>

@@ -158,3 +158,39 @@ def test_click_track_sections():
     sections = tempo.sections_from_beats(grid((90, 60), (120, 80)))
     assert [s["bpm"] for s in sections] == [pytest.approx(90, abs=0.2), pytest.approx(120, abs=0.2)]
     assert sections[1]["start"] == pytest.approx(1 + 60 * 60 / 90, abs=0.7)
+
+
+def _steps(*parts, jitter=0.0, seed=0):
+    """Beat times: (bpm, beats) parts in a row, with optional beat-tracker jitter."""
+    times, t = [0.0], 0.0
+    for bpm, n in parts:
+        for _ in range(n):
+            t += 60.0 / bpm
+            times.append(t)
+    return list(np.asarray(times) + np.random.default_rng(seed).normal(0, jitter, len(times)))
+
+
+@pytest.mark.parametrize("seed", range(3))
+def test_tempo_changes_land_on_the_beat_they_happen(seed):
+    beats = _steps((120, 32), (90, 32), (140, 40), jitter=0.01, seed=seed)
+    changes = tempo.tempo_changes(beats)
+    assert [round(c["bpm"]) for c in changes] == [120, 90, 140]
+    assert changes[0]["start"] == 0.0
+    assert abs(changes[1]["start"] - 16.0) < 0.03 and abs(changes[2]["start"] - (16 + 32 * 60 / 90)) < 0.03
+
+
+def test_a_drifting_performance_keeps_one_tempo():
+    beats = list(np.cumsum([0.6 * (1 - 0.02 * i / 200) for i in range(200)]))
+    assert len(tempo.tempo_changes(beats)) == 1
+
+
+def test_bars_follow_the_downbeats():
+    beats = _steps((120, 40))
+    downbeats = [beats[i] for i in (0, 4, 8, 12, 14, 17, 20, 23)]
+    assert tempo.meter_changes(beats, downbeats) == [
+        {"start": 0.0, "beats": 4},
+        {"start": beats[12], "beats": 2},
+        {"start": beats[14], "beats": 3},
+    ]
+    m = tempo.beat_map(beats[3:], downbeats[1:])
+    assert m["offset"] == round(beats[4], 3) and m["tempos"] == [{"start": 0.0, "bpm": 120.0}]
