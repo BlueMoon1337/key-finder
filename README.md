@@ -138,7 +138,7 @@ To publish a release:
 1. Raise `version` in `package.json` (and in `pyproject.toml` and `keyfinder/__init__.py`).
 2. Push to `main`. The workflow starts by itself when that version hasn't been released. Pushing a `v…` tag, or **Actions ▸ Release ▸ Run workflow**, also starts it.
 
-It needs the repository secret **`UPDATE_SIGNING_KEY`** (**Settings ▸ Secrets and variables ▸ Actions**). KeyFinder uses the same signing key pair as Player (`electron/update-key.pem` is Player's public key), so paste the same private key you use for Player. Updates are signed over "KeyFinder update", so a Player update can never be installed as a KeyFinder one. Until the secret exists, the workflow does nothing and says why.
+It needs the repository secret **`UPDATE_SIGNING_KEY`** (**Settings ▸ Secrets and variables ▸ Actions**). KeyFinder uses the same signing key pair as Player (`electron/update-key.pem` is Player's public key), so paste the same private key you use for Player. Updates are signed over "KeyFinder update", so a Player update can never be installed as a KeyFinder one. Without the secret the installers are still released, but with no update files, so the Update button doesn't offer that version.
 
 In the app, **Profile ▸ Updates** asks once for a fine-grained GitHub token with **Contents: Read-only** on this repository, since it's private. KeyFinder then checks for new releases at start-up and every six hours, and **Install and Restart** downloads the update, checks its signature, replaces the app and opens it again.
 

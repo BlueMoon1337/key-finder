@@ -193,6 +193,11 @@ export async function check(): Promise<Found | null> {
   const token = readToken()
   if (!token) throw new Error('Add a GitHub token first.')
   const release = await latestRelease(token)
+  const current = app.getVersion()
+  pending = null
+  // A release published without update files (no signing key at the time) is fine when it's
+  // this version or older: there's nothing to install either way.
+  if (!newer(release.tag, current)) return null
   const manifestAsset = release.assets.find((a) => a.name === 'latest.json')
   if (!manifestAsset) {
     throw new Error(`${release.tag} has no update files yet. It may still be building: try again in a few minutes.`)
@@ -205,8 +210,6 @@ export async function check(): Promise<Found | null> {
   } catch {
     throw new Error('The update details couldn’t be read.')
   }
-  const current = app.getVersion()
-  pending = null
   if (!manifest?.version || !newer(manifest.version, current)) return null
   const entry = manifest.platforms?.[PLATFORM_KEY]
   if (!entry?.file || !entry.sha512 || !entry.signature) {
