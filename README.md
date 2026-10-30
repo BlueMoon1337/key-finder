@@ -39,7 +39,10 @@ A song that changes tempo partway through (a medley, a live set that moves into 
 What counts as a change:
 
 - **At least 10 % and 30 seconds.** A band pushing a few percent, a ritardando at the end, or a pianist's rubato stays one tempo; the beats follow them anyway.
+- **Confirmed by the kick and bass.** A hi-hat or shaker pattern can pulse at another tempo for minutes (in *Este Corito Es* the hats run at 100 over a band at 126), so a new tempo counts only where the low end plays it too.
 - **Not the same beat counted differently.** Half time and double time aren't changes. A dotted-eighth guitar delay or a triplet feel pulses at 4:3 or 3:2 of the tempo and can sound like a new one, so a new tempo also has to be in the low end (kick and bass) before it counts. A real change from 90 to 120 is; a delay over a steady groove isn't.
+
+Each tempo after the first is counted the way the one before it was: a song KeyFinder counts at 63 (half of 126) that moves into a song at 112 reads 63 → 56, a slowdown, as it is. ½× / 2× changes every section together.
 
 With a Click Track, the click decides: a new tempo is wherever its clicks settle into a different spacing (10 % or more, for 30 seconds).
 
@@ -115,7 +118,7 @@ How the analysis works:
 | Feature | Method |
 | --- | --- |
 | Key | Tuning-corrected chroma correlated with Krumhansl–Kessler and Temperley key profiles. Relative major/minor ties are broken with the chord sequence (time on the tonic chord, the first and last chord). |
-| Tempo and beats | Spectral-flux onsets → prior-weighted autocorrelation → Ellis's dynamic-programming beat tracker; downbeats from low-frequency accents. Tempo changes: the tempo in 12-second windows, octave-folded and smoothed with a Viterbi pass, and the beats tracked section by section (below). |
+| Tempo and beats | Spectral-flux onsets → prior-weighted autocorrelation → Ellis's dynamic-programming beat tracker; downbeats from low-frequency accents. The tempo is read from the whole mix and its low end (kick and bass) together, so a pattern only the hi-hats play can't pass for the beat. Tempo changes: the tempo in 12-second windows, octave-folded and smoothed with a Viterbi pass, and the beats tracked section by section (above). |
 | Chords | Beat-synchronous chroma and bass chroma, template matching against the chord vocabulary, a key-aware prior, and Viterbi smoothing weighted by duration. |
 | Stems | [Demucs](https://github.com/adefossez/demucs) (Hybrid Transformer Demucs: `htdemucs`, and `htdemucs_6s` for six stems), run in the engine's process (`keyfinder/neural.py`). The fallback is a fast DSP separator (harmonic/percussive median filtering, stereo centre extraction, crossovers) that gives stems adding back up to the mix. |
 | Pitch | Rendered by the engine and cached: Rubber Band (formant-preserving) when a system FFmpeg has it, else FFmpeg's `asetrate` + `atempo`. |

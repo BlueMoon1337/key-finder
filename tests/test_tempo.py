@@ -194,3 +194,17 @@ def test_bars_follow_the_downbeats():
     ]
     m = tempo.beat_map(beats[3:], downbeats[1:])
     assert m["offset"] == round(beats[4], 3) and m["tempos"] == [{"start": 0.0, "bpm": 120.0}]
+
+
+def test_a_hi_hat_pattern_does_not_set_the_tempo():
+    """Este Corito Es: kick and bass at 126 while the hats pulse at 100 (a syncopated pattern)."""
+    y = progression(CHANGE_CHORDS, bpm=126, repeats=16)
+    t = np.arange(int(0.03 * SR)) / SR
+    hat = (np.random.default_rng(0).standard_normal(t.size) * np.exp(-t / 0.004)).astype(np.float32)
+    hat = np.convolve(hat, [1, -1], mode="same")  # high-passed: all hiss, no low end
+    for p in np.arange(0.0, y.size / SR - 0.1, 60 / 100):
+        s = int(p * SR)
+        y[s:s + hat.size] += 1.5 * hat[: y.size - s]
+    result = rhythm_of(y)
+    assert len(result["tempo_sections"]) == 1
+    assert any(result["bpm"] == pytest.approx(126 * k, rel=0.02) for k in (0.5, 1, 2))

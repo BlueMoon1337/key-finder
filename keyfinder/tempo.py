@@ -33,10 +33,24 @@ def tempo_strength(onset: np.ndarray, fps: float) -> tuple[np.ndarray, np.ndarra
     return bpms, strength * prior
 
 
-def estimate_tempo(onset: np.ndarray, fps: float) -> float:
+def combined_strength(onset: np.ndarray, bass_onset: np.ndarray | None, fps: float) -> tuple[np.ndarray, np.ndarray]:
+    """tempo_strength of the whole mix and of its low end (kick and bass), weighted alike.
+
+    A pattern only the hi-hats or a shaker play (a syncopated 3-3-2, a delay's echoes) can
+    beat more strongly than the tempo in the whole mix's onsets; the kick and bass keep the
+    tempo, so counting them too keeps such a pattern from passing for the beat.
+    """
+    bpms, strength = tempo_strength(onset, fps)
+    if bass_onset is None:
+        return bpms, strength
+    _, low = tempo_strength(bass_onset, fps)
+    return bpms, strength / (strength.max() + 1e-12) + low / (low.max() + 1e-12)
+
+
+def estimate_tempo(onset: np.ndarray, fps: float, bass_onset: np.ndarray | None = None) -> float:
     if onset.size < 4:
         return PRIOR_BPM
-    bpms, strength = tempo_strength(onset, fps)
+    bpms, strength = combined_strength(onset, bass_onset, fps)
     if strength.max() <= 0:
         return PRIOR_BPM
     return float(bpms[int(np.argmax(strength))])
@@ -115,7 +129,7 @@ def analyze_rhythm(onset: np.ndarray, bass_onset: np.ndarray, fps: float) -> dic
     sections = find_tempo_sections(onset, bass_onset, fps)
     duration = onset.size / fps
     if len(sections) == 1:
-        bpm = estimate_tempo(onset, fps)
+        bpm = estimate_tempo(onset, fps, bass_onset)
         beats = track_beats(onset, fps, bpm)
         times = beats / fps
         bpm = _beats_bpm(times, bpm)
@@ -150,8 +164,8 @@ TEMPO_DRIFT = 2  # free movement per window, in steps (about 1.5 %)
 TEMPO_SWITCH = 4.0  # the cost of a jump, in windows that prefer the new tempo outright
 MIN_TEMPO_SECTION = 30.0  # seconds
 MIN_TEMPO_CHANGE = 0.10  # as a log ratio, octaves aside: about 10 %
-NEW_TEMPO_EVIDENCE = 1.3  # the new tempo must be this much stronger than the neighbour's...
-NEW_TEMPO_BASS_EVIDENCE = 1.5  # ...and this much in the low end
+NEW_TEMPO_EVIDENCE = 1.3  # the new tempo must be this much stronger than the neighbour's (mix and low end)...
+NEW_TEMPO_BASS_EVIDENCE = 1.5  # ...and this much in the low end alone
 
 
 def _octave_distance(a: float, b: float) -> float:
@@ -165,7 +179,7 @@ def _family_strength(bpms: np.ndarray, strength: np.ndarray, bpm: float) -> floa
     return max(float(np.interp(bpm * r, bpms, strength, left=0, right=0)) for r in (1, 2, 0.5))
 
 
-def _window_path(onset: np.ndarray, fps: float, center: float) -> tuple[np.ndarray, np.ndarray]:
+def _window_path(onset: np.ndarray, bass_onset: np.ndarray, fps: float, center: float) -> tuple[np.ndarray, np.ndarray]:
     """The folded tempo of each window (Viterbi-smoothed) and the windows' start times."""
     from scipy.ndimage import maximum_filter1d
 
@@ -174,7 +188,7 @@ def _window_path(onset: np.ndarray, fps: float, center: float) -> tuple[np.ndarr
     grid = center / np.sqrt(2) * 2 ** (np.arange(TEMPO_STEPS) / TEMPO_STEPS)
     emissions = np.zeros((starts.size, TEMPO_STEPS))
     for i, s in enumerate(starts):
-        bpms, strength = tempo_strength(onset[s:s + win], fps)
+        bpms, strength = combined_strength(onset[s:s + win], bass_onset[s:s + win], fps)
         for k in (-1, 0, 1):
             emissions[i] = np.maximum(emissions[i], np.interp(grid * 2.0 ** k, bpms, strength, left=0, right=0))
     emissions /= emissions.max(axis=1, keepdims=True) + 1e-12
@@ -204,10 +218,10 @@ def find_tempo_sections(onset: np.ndarray, bass_onset: np.ndarray, fps: float) -
     in each section give the exact tempo.
     """
     duration = onset.size / fps
-    main = estimate_tempo(onset, fps)
+    main = estimate_tempo(onset, fps, bass_onset)
     if duration < 2 * MIN_TEMPO_SECTION + TEMPO_WINDOW:
         return [{"start": 0.0, "end": duration, "bpm": main}]
-    tempos, starts = _window_path(onset, fps, main)
+    tempos, starts = _window_path(onset, bass_onset, fps, main)
 
     # Runs of windows at one tempo, split at the middle of the windows' overlap.
     runs: list[list[float]] = [[0.0, 0.0, tempos[0], 1]]
@@ -230,8 +244,9 @@ def find_tempo_sections(onset: np.ndarray, bass_onset: np.ndarray, fps: float) -
         if e - s < MIN_TEMPO_SECTION or _octave_distance(t, sections[j][2]) < MIN_TEMPO_CHANGE:
             return False
         a, z = int(s * fps), int(e * fps)
-        for env, needed in ((onset, NEW_TEMPO_EVIDENCE), (bass_onset, NEW_TEMPO_BASS_EVIDENCE)):
-            bpms, strength = tempo_strength(env[a:z], fps)
+        checks = (combined_strength(onset[a:z], bass_onset[a:z], fps), NEW_TEMPO_EVIDENCE), \
+                 (tempo_strength(bass_onset[a:z], fps), NEW_TEMPO_BASS_EVIDENCE)
+        for (bpms, strength), needed in checks:
             if _family_strength(bpms, strength, t) < needed * _family_strength(bpms, strength, sections[j][2]):
                 return False
         return True
@@ -251,12 +266,16 @@ def find_tempo_sections(onset: np.ndarray, bass_onset: np.ndarray, fps: float) -
 
     if len(sections) == 1:
         return [{"start": 0.0, "end": duration, "bpm": main}]
-    # Each tempo in the octave its own section's estimate is in: the whole song's estimate can
-    # land on a tempo that suits both halves (60 for a song that goes from 90 to 120).
+    # The first tempo in the octave of its own section's estimate (the whole song's can land on a
+    # tempo that suits both halves: 60 for a song that goes from 90 to 120); each after it in the
+    # octave nearest the one before, as a band slows from 63 to 54, not "up" to 108.
     out = []
     for s, e, t in sections:
-        own = estimate_tempo(onset[int(s * fps):int(e * fps)], fps)
-        out.append({"start": float(s), "end": float(e), "bpm": float(t * 2.0 ** round(np.log2(own / t)))})
+        if out:
+            ref = out[-1]["bpm"]
+        else:
+            ref = estimate_tempo(onset[int(s * fps):int(e * fps)], fps, bass_onset[int(s * fps):int(e * fps)])
+        out.append({"start": float(s), "end": float(e), "bpm": float(t * 2.0 ** round(np.log2(ref / t)))})
     return out
 
 
