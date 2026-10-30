@@ -1,4 +1,5 @@
 import io
+import json
 import re
 import struct
 import zipfile
@@ -39,6 +40,8 @@ def read_wav(data: bytes) -> dict:
             out["fmt"] = struct.unpack("<HHIIHH", body[:16])
         elif cid == b"data":
             out["frames"] = size // out["fmt"][4]
+        elif cid == b"bmap":
+            out["bmap"] = json.loads(body.decode("utf-8"))
         elif cid == b"acid":
             out["den"], out["num"], out["bpm"] = struct.unpack("<HHf", body[16:24])
         elif cid == b"cue ":
@@ -114,6 +117,9 @@ def test_package_is_laid_out_as_player_imports_it(song_folder):
     assert (wav["num"], wav["den"], round(wav["bpm"], 2)) == (4, 4, 60.0)
     assert wav["INAM"] == "Yo Venceré" and wav["IART"] == "Danilo Montero"
     assert wav["ISFT"] == "KeyFinder"  # how Player knows the name's second slot is the artist
+    # The beat map: bar 1, the tempo and the bars, at the new speed (Player's parseBeatMap).
+    assert wav["bmap"] == {"version": 1, "offset": 0.0, "tempos": [[0.0, 60.0]], "meters": [[0.0, 4, 4]]}
+    assert click["bmap"] == wav["bmap"]
     # Key changes become sections, transposed and at the new speed.
     assert [(wav["cues"][i], wav["labels"][i]) for i in (1, 2)] == [(0, "E minor"), (8 * sr, "D minor")]
 
@@ -140,6 +146,8 @@ def test_server_exports_for_player(tmp_path):
         res = client.post("/api/songs", files={"file": ("Song-Name.wav", path.read_bytes(), "audio/wav")},
                           data={"mode": "2stems", "backend": "dsp"})
         song_id = res.json()["id"]
+        bm = client.get(f"/api/songs/{song_id}").json()["analysis"]["beat_map"]
+        assert set(bm) == {"offset", "tempos", "meters"} and bm["tempos"][0]["start"] == 0.0
         name = client.get(f"/api/songs/{song_id}/export/player-name", params={"semitones": 1}).json()["name"]
         assert PLAYER_NAME.match(name.removesuffix(".zip"))
         res = client.get(f"/api/songs/{song_id}/export", params={"format": "player", "semitones": 1})
@@ -147,3 +155,16 @@ def test_server_exports_for_player(tmp_path):
         assert quote(name) in res.headers["content-disposition"]
         with zipfile.ZipFile(io.BytesIO(res.content)) as zf:
             assert sum(n.endswith(".wav") for n in zf.namelist()) == 4
+
+
+def test_beat_map_carries_tempo_and_bar_changes(song_folder):
+    # 120 BPM for 8 beats, then 80 BPM; bars of 4, then one of 2, then 3.
+    beats = [0.5 * i for i in range(9)] + [4.0 + 0.75 * (i + 1) for i in range(8)]
+    downbeats = [beats[0], beats[4], beats[8], beats[10], beats[13], beats[16]]
+    s = song(stems=["original"], analysis={"beats": beats, "downbeats": downbeats})
+    dest = player_export.build(s, song_folder, song_folder / "out.zip", speed=2.0)
+    with zipfile.ZipFile(dest) as zf:
+        bmap = read_wav(zf.read(zf.namelist()[0]))["bmap"]
+    assert bmap["offset"] == 0.0
+    assert bmap["tempos"] == [[0.0, 240.0], [2.0, 160.0]]
+    assert bmap["meters"] == [[0.0, 4, 4], [2.0, 2, 4], [2.75, 3, 4]]

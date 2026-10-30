@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from . import __version__, neural, player_export, remote, separation, stems, transform
+from . import __version__, neural, player_export, remote, separation, stems, tempo, transform
 from .jobs import ORIGINAL, JobStore, SongNotFound, stem_labels
 
 MAX_UPLOAD_BYTES = int(os.environ.get("KEYFINDER_MAX_UPLOAD_MB", "500")) * 1024 * 1024
@@ -207,6 +207,10 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
         song.pop("source", None)
         song.pop("package_folder", None)
         song["stem_names"], song["stem_kinds"] = stem_labels(song)
+        a = song.get("analysis")
+        if a and a.get("beats"):
+            # Tempo changes and bar lengths, from the beats as they are now (after a tempo fix too).
+            a["beat_map"] = tempo.beat_map(a["beats"], a.get("downbeats") or [], a.get("beats_per_bar", 4))
         return song
 
     @app.delete("/api/songs/{song_id}", status_code=204)

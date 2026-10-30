@@ -6,8 +6,9 @@ Player imports MultiTracks.com downloads, so the package follows their layout:
   KeyFinder has no album and puts the artist in its place; the WAVs' software tag (``ISFT``
   "KeyFinder") tells Player to read it as the artist;
 * ``MultiTracks/`` holding one WAV per stem. Each WAV also carries the title, artist and
-  software (``LIST/INFO``), the tempo and meter (``acid``) and, when the song changes key, a cue
-  marker at each key change, which Player turns into song sections;
+  software (``LIST/INFO``), the tempo and meter (``acid``), the beat map (``bmap``: where bar 1
+  falls, the tempo changes and the time signature changes, as JSON; see ``_bmap``) and, when the
+  song changes key, a cue marker at each key change, which Player turns into song sections;
 * ``Click Track.wav``, clicked on the beats KeyFinder found and accented on the downbeats.
   Player plays a stem by that name as the song's click, so the click follows the
   performance, which a click generated from one BPM can't. A song that came with its own
@@ -20,6 +21,7 @@ semitones down at 90 % arrives in Player in its new key and tempo.
 
 from __future__ import annotations
 
+import json
 import re
 import struct
 import zipfile
@@ -27,7 +29,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import audio, key, transform
+from . import audio, key, tempo, transform
 from .jobs import ORIGINAL, stem_labels
 
 SR = transform.SR
@@ -95,6 +97,18 @@ def _acid(bpm: float, beats: int, per_bar: int = 4) -> bytes:
     return _chunk(b"acid", struct.pack("<IHHfIHHf", 0, 60, 0x8000, 0.0, beats, 4, per_bar, bpm))
 
 
+def _bmap(beats: list[float], downbeats: list[float], beats_per_bar: int) -> bytes:
+    """The beat map Player reads tempo and time signature changes from (its "bmap" chunk)."""
+    m = tempo.beat_map(beats, downbeats, beats_per_bar)
+    body = {
+        "version": 1,
+        "offset": m["offset"],
+        "tempos": [[t["start"], t["bpm"]] for t in m["tempos"]],
+        "meters": [[x["start"], x["beats"], 4] for x in m["meters"]],
+    }
+    return _chunk(b"bmap", json.dumps(body, separators=(",", ":")).encode("utf-8"))
+
+
 def _cues(markers: list[tuple[int, str]]) -> bytes:
     if not markers:
         return b""
@@ -153,6 +167,7 @@ def build(song: dict, folder: Path, dest: Path, semitones: int = 0, speed: float
         markers[0] = (0, markers[0][1])
     metadata = (_info(song.get("title") or "", song.get("artist") or "")
                 + _acid(round(result["bpm"] * speed, 2), len(beats), result.get("beats_per_bar", 4))
+                + _bmap(beats, downbeats, result.get("beats_per_bar", 4))
                 + _cues(markers))
 
     # Every stem and the click the same length, so they line up to the sample in Player: decoding

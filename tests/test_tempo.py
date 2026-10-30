@@ -96,3 +96,39 @@ def test_one_stray_change_does_not_shift_the_bar():
     changes = [i for i in range(0, 80, 4) if i != 40] + [41]
     segments = [{"start": 0.0, "root": 0}] + [{"start": beats[i], "root": i % 12} for i in sorted(changes)[1:]]
     assert downbeats_from_chords(beats, segments, beats[0::4]) == beats[0::4]
+
+
+def _steps(*parts, jitter=0.0, seed=0):
+    """Beat times: (bpm, beats) parts in a row, with optional beat-tracker jitter."""
+    times, t = [0.0], 0.0
+    for bpm, n in parts:
+        for _ in range(n):
+            t += 60.0 / bpm
+            times.append(t)
+    return list(np.asarray(times) + np.random.default_rng(seed).normal(0, jitter, len(times)))
+
+
+@pytest.mark.parametrize("seed", range(3))
+def test_tempo_changes_land_on_the_beat_they_happen(seed):
+    beats = _steps((120, 32), (90, 32), (140, 40), jitter=0.01, seed=seed)
+    changes = tempo.tempo_changes(beats)
+    assert [round(c["bpm"]) for c in changes] == [120, 90, 140]
+    assert changes[0]["start"] == 0.0
+    assert abs(changes[1]["start"] - 16.0) < 0.03 and abs(changes[2]["start"] - (16 + 32 * 60 / 90)) < 0.03
+
+
+def test_a_drifting_performance_keeps_one_tempo():
+    beats = list(np.cumsum([0.6 * (1 - 0.02 * i / 200) for i in range(200)]))
+    assert len(tempo.tempo_changes(beats)) == 1
+
+
+def test_bars_follow_the_downbeats():
+    beats = _steps((120, 40))
+    downbeats = [beats[i] for i in (0, 4, 8, 12, 14, 17, 20, 23)]
+    assert tempo.meter_changes(beats, downbeats) == [
+        {"start": 0.0, "beats": 4},
+        {"start": beats[12], "beats": 2},
+        {"start": beats[14], "beats": 3},
+    ]
+    m = tempo.beat_map(beats[3:], downbeats[1:])
+    assert m["offset"] == round(beats[4], 3) and m["tempos"] == [{"start": 0.0, "bpm": 120.0}]
