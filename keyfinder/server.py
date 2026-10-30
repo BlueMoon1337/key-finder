@@ -25,10 +25,12 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from . import __version__, neural, player_export, remote, separation, transform
-from .jobs import ORIGINAL, JobStore, SongNotFound
+from . import __version__, neural, player_export, remote, separation, stems, transform
+from .jobs import ORIGINAL, JobStore, SongNotFound, stem_labels
 
 MAX_UPLOAD_BYTES = int(os.environ.get("KEYFINDER_MAX_UPLOAD_MB", "500")) * 1024 * 1024
+# Zips of stems (MultiTracks downloads run to a few GB) imported from disk in the desktop app.
+MAX_PACKAGE_BYTES = int(os.environ.get("KEYFINDER_MAX_PACKAGE_MB", "8192")) * 1024 * 1024
 TOKEN_HEADER = "X-KeyFinder-Token"
 NO_UI = """<!doctype html><meta charset="utf-8"><title>KeyFinder</title>
 <body style="font:16px system-ui;background:#000;color:#eee;padding:40px">
@@ -138,7 +140,10 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
     if token:
         @app.post("/api/songs/local", status_code=201)
         def import_local(paths: list[str] = Body(...), mode: str = Body("4stems"), backend: str = Body("auto")):
-            """Desktop only: import files the user picked in a native dialog or dropped on the window."""
+            """Desktop only: import files the user picked in a native dialog or dropped on the window.
+
+            A folder (of stems, or a Player song) or a zip of stems becomes one song with its stems.
+            """
             try:
                 store.check_options(mode, backend)
             except ValueError as exc:
@@ -147,10 +152,19 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
             for raw in paths[:100]:
                 source = Path(raw)
                 try:
-                    if not source.is_absolute() or not source.is_file():
+                    if not source.is_absolute():
                         raise ValueError("not a file")
-                    if source.stat().st_size > MAX_UPLOAD_BYTES:
-                        raise ValueError(f"larger than {MAX_UPLOAD_BYTES // (1024 * 1024)} MB")
+                    if source.is_dir():
+                        files = [p.relative_to(source).as_posix() for p in source.rglob("*") if p.is_file()]
+                        if not stems.pick_files(files[:5000])["stems"]:
+                            raise ValueError("there are no audio files in the folder")
+                        created.append(store.summary(store.create(source.name, Path(), package_folder=source)))
+                        continue
+                    if not source.is_file():
+                        raise ValueError("not a file")
+                    limit = MAX_PACKAGE_BYTES if source.suffix.lower() == ".zip" else MAX_UPLOAD_BYTES
+                    if source.stat().st_size > limit:
+                        raise ValueError(f"larger than {limit // (1024 * 1024)} MB")
                     fd, tmp_name = tempfile.mkstemp(dir=data_dir, prefix="import-")
                     os.close(fd)
                     tmp = Path(tmp_name)
@@ -191,6 +205,8 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
         except SongNotFound as exc:
             raise not_found(exc) from exc
         song.pop("source", None)
+        song.pop("package_folder", None)
+        song["stem_names"], song["stem_kinds"] = stem_labels(song)
         return song
 
     @app.delete("/api/songs/{song_id}", status_code=204)
@@ -204,11 +220,11 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
     def stem_audio(song_id: str, stem: str, semitones: int = Query(0, ge=-12, le=12), download: bool = False):
         try:
             path = store.stem_path(song_id, stem)
-            title = store.get(song_id)["title"]
+            song = store.get(song_id)
         except SongNotFound as exc:
             raise not_found(exc) from exc
         if download:
-            name = title if stem == ORIGINAL else f"{title} ({stem})"
+            name = song["title"] if stem == ORIGINAL else f"{song['title']} ({stem_labels(song)[0].get(stem, stem)})"
             return FileResponse(path, media_type="audio/mpeg", filename=f"{name}.mp3")
         if semitones:
             shifted = path.with_name(f"{stem}.pitch{semitones:+d}.mp3")
@@ -253,11 +269,11 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
             return FileResponse(dest, media_type="application/zip",
                                 filename=player_export.package_name(song, semitones, speed) + ".zip",
                                 background=BackgroundTask(dest.unlink, missing_ok=True))
-        stems = [s for s in song["stems"] if s != ORIGINAL] or [ORIGINAL]
+        parts = [s for s in song["stems"] if s != ORIGINAL] or [ORIGINAL]
         levels: dict[str, float] = {}
         for pair in filter(None, volumes.split(",")):
             name, _, value = pair.partition(":")
-            if name not in stems:
+            if name not in parts:
                 raise HTTPException(400, f"unknown stem {name!r}")
             try:
                 levels[name] = float(value)
@@ -265,7 +281,7 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
                 raise HTTPException(400, f"bad volume for {name!r}") from exc
         dest = exports / f"export-{os.getpid()}-{threading.get_ident()}.{format}"
         try:
-            transform.mixdown({s: folder / "stems" / f"{s}.mp3" for s in stems}, levels, dest, semitones, speed)
+            transform.mixdown({s: folder / "stems" / f"{s}.mp3" for s in parts}, levels, dest, semitones, speed)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         suffix = []
@@ -273,9 +289,10 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
             suffix.append(f"{semitones:+d}st")
         if speed != 1.0:
             suffix.append(f"{speed:g}x")
-        muted = [s for s in stems if levels.get(s, 1.0) == 0]
+        labels, _ = stem_labels(song)
+        muted = [labels.get(s, s) for s in parts if levels.get(s, 1.0) == 0]
         if muted:
-            suffix.append("no " + " ".join(muted))
+            suffix.append("no " + (", ".join(muted) if len(muted) <= 3 else f"{len(muted)} stems"))
         name = song["title"] + (f" ({', '.join(suffix)})" if suffix else "") + f".{format}"
         return FileResponse(dest, filename=name, background=BackgroundTask(dest.unlink, missing_ok=True))
 

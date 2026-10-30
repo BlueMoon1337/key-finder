@@ -114,3 +114,114 @@ def analyze_rhythm(onset: np.ndarray, bass_onset: np.ndarray, fps: float) -> dic
         "downbeats": [round(float(t), 3) for t in times[phase::4]],
         "beats_per_bar": 4,
     }
+
+
+# ------------------------------------------------------------------ click tracks
+
+CLICK_MIN_GAP = 0.12  # seconds between clicks, at least (500 BPM)
+
+
+def _click_onsets(y: np.ndarray, sr: int) -> np.ndarray:
+    """Sample positions where each click starts: a click track is silence and short ticks."""
+    hop = 64
+    n = y.size // hop
+    if n < 4:
+        return np.zeros(0, dtype=int)
+    env = np.abs(y[: n * hop]).reshape(n, hop).max(axis=1)
+    loud = np.percentile(env, 99.5)
+    if loud <= 1e-4:
+        return np.zeros(0, dtype=int)
+    above = env > 0.2 * loud
+    starts = np.flatnonzero(above & ~np.concatenate([[False], above[:-1]]))
+    out, last = [], -10**9
+    gap = int(CLICK_MIN_GAP * sr)
+    for f in starts:
+        s = f * hop
+        if s - last < gap:
+            continue
+        # The first sample over a fifth of this click's peak, for sample-accurate timing.
+        window = np.abs(y[max(0, s - hop): s + 4 * hop])
+        first = int(np.argmax(window > 0.2 * window.max()))
+        out.append(max(0, s - hop) + first)
+        last = out[-1]
+    return np.asarray(out, dtype=int)
+
+
+def _accents(y: np.ndarray, sr: int, onsets: np.ndarray) -> np.ndarray | None:
+    """Which clicks are accented (MultiTracks' and most clicks mark beat one with a higher or
+    louder tick), or None when they all sound alike."""
+    length = int(0.03 * sr)
+    feats = []
+    window = np.hanning(length)
+    freqs = np.fft.rfftfreq(length, 1 / sr)
+    for s in onsets:
+        seg = y[s:s + length]
+        if seg.size < length:
+            seg = np.pad(seg, (0, length - seg.size))
+        spec = np.abs(np.fft.rfft(seg * window))
+        feats.append((float((spec * freqs).sum() / (spec.sum() + 1e-12)), float(np.abs(seg).max())))
+    for values in (np.log([f[0] + 1 for f in feats]), np.log([f[1] + 1e-6 for f in feats])):
+        lo, hi = np.percentile(values, 5), np.percentile(values, 95)
+        if hi - lo < 0.05:
+            continue
+        high = values > (lo + hi) / 2
+        share = high.mean()
+        # Two clear groups, the accented one a bar's worth (1 in 2 to 1 in 8) of the clicks.
+        spread = max(values[high].std(), values[~high].std()) if 0 < share < 1 else 1
+        if 1 / 8.5 <= share <= 1 / 1.9 and (hi - lo) > 4 * spread:
+            return high
+    return None
+
+
+def beats_from_click(y: np.ndarray, sr: int, bpm_hint: float | None = None) -> dict | None:
+    """The beat grid a click track plays: every click a beat, accented clicks the downbeats.
+
+    Clicks on eighths (a slow song's click) are thinned to the beat when ``bpm_hint`` (e.g. a
+    MultiTracks name's BPM) says so; gaps where the click stops are filled at the tempo around
+    them. None when there aren't enough clicks to go on.
+    """
+    onsets = _click_onsets(np.asarray(y, dtype=np.float32), sr)
+    if onsets.size < 8:
+        return None
+    accents = _accents(y, sr, onsets)
+    times = onsets / sr
+    period = float(np.median(np.diff(times)))
+    if bpm_hint:
+        ratio = (60.0 / bpm_hint) / period
+        if 1.7 < ratio < 2.3:  # eighth-note clicks: keep the half that holds the accents
+            keep = 0
+            if accents is not None:
+                keep = int(np.argmax([accents[p::2].sum() for p in (0, 1)]))
+            times, accents = times[keep::2], (accents[keep::2] if accents is not None else None)
+            period *= 2
+    beats, accented = [], []
+    for i, t in enumerate(times):
+        if beats:
+            gap = t - beats[-1]
+            missing = int(round(gap / period)) - 1
+            if missing > 0 and gap > 1.6 * period:  # the click stopped for a while
+                step = gap / (missing + 1)
+                for _ in range(missing):
+                    beats.append(beats[-1] + step)
+                    accented.append(False)
+        beats.append(float(t))
+        accented.append(bool(accents[i]) if accents is not None else False)
+    beats_arr = np.asarray(beats)
+    slope = np.polyfit(np.arange(beats_arr.size), beats_arr, 1)[0]
+    result = {"bpm": round(60.0 / slope, 1), "beats": [round(b, 3) for b in beats], "downbeats": None,
+              "beats_per_bar": 4}
+    if accents is not None:
+        idx = np.flatnonzero(accented)
+        if idx.size >= 2:
+            per_bar = int(np.bincount(np.diff(idx)).argmax())
+            if 2 <= per_bar <= 12:
+                # Keep counting bars where the click stopped (no accents there to go by).
+                downs, last = [], None
+                for i in range(len(beats)):
+                    if accented[i] or (last is not None and i - last == per_bar
+                                       and not any(accented[i + 1:i + 2])):
+                        downs.append(i)
+                        last = i
+                result["downbeats"] = [round(beats[i], 3) for i in downs]
+                result["beats_per_bar"] = per_bar
+    return result

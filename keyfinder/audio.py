@@ -177,6 +177,7 @@ def probe(path: str | Path) -> dict:
     return {
         "title": (tags.get("title") or "").strip(),
         "artist": (tags.get("artist") or tags.get("album_artist") or "").strip(),
+        "encoder": (tags.get("encoder") or "").strip(),  # the program that wrote it (WAV ISFT)
         "duration": float(duration),
         "cover": any(pictures),
         "video": not all(pictures),

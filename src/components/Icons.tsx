@@ -139,6 +139,13 @@ export const MusicTile = () => (
     <ellipse cx="30.5" cy="29" rx="4.5" ry="3.6" fill="#fff" />
   </svg>
 )
+export const StemsTile = () => (
+  <svg viewBox="0 0 48 48" aria-hidden fill="#fff">
+    {[14, 20, 26, 32].map((y, i) => (
+      <rect key={y} x={10 + (i % 2) * 4} y={y - 2} width={24 - (i % 2) * 6 + (i === 2 ? 4 : 0)} height="3.6" rx="1.8" />
+    ))}
+  </svg>
+)
 export const LinkTile = () => (
   <svg viewBox="0 0 48 48" aria-hidden fill="none" stroke="#fff" strokeWidth="3.2" strokeLinecap="round">
     <path d="M21 27a6 6 0 0 0 8.5 0l6-6a6 6 0 0 0-8.5-8.5l-1.5 1.5" />

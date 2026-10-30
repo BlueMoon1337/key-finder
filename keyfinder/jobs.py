@@ -6,6 +6,10 @@ Each song lives in ``<data>/songs/<id>/``:
 * ``song.json``    - status, progress, metadata, analysis results and stem list
 * ``cover.jpg``    - embedded artwork or a video frame, when there is one
 * ``stems/``       - one mp3 per stem, plus cached pitch-shifted renders
+
+A song that arrives as stems (a MultiTracks zip, a folder of stems, a Player song) is a
+"package": its stems are kept as they are, named and sorted by kind with Player's rules
+(``stems.py``), instead of being separated.
 """
 
 from __future__ import annotations
@@ -20,11 +24,33 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import analysis, audio, neural, separation
+import numpy as np
+from scipy.signal import resample_poly
+
+from . import analysis, audio, neural, package, separation, stems
 
 ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 ORIGINAL = "original"
 MIN_SECONDS = 2
+PACKAGE = "stems"  # the mode of a song that arrived as stems
+# KeyFinder's separated stems by the names Player routes (Player reads "Guitar" as an electric
+# guitar, "Other" goes to its Aux bus).
+SEPARATED_NAMES = {
+    "vocals": "Vocals", "drums": "Drums", "bass": "Bass", "guitar": "Guitar", "piano": "Piano",
+    "other": "Other", "accompaniment": "Backing",
+}
+
+
+def stem_labels(song: dict) -> tuple[dict[str, str], dict[str, str]]:
+    """Each stem's name and kind (one of stems.KINDS): a package's own, else by KeyFinder's names."""
+    names = dict(song.get("stem_names") or {})
+    kinds = dict(song.get("stem_kinds") or {})
+    for sid in song.get("stems", []):
+        if sid == ORIGINAL:
+            continue
+        names.setdefault(sid, SEPARATED_NAMES.get(sid, sid.replace("-", " ").title()))
+        kinds.setdefault(sid, stems.kind_of(names[sid]))
+    return names, kinds
 
 
 class SongNotFound(KeyError):
@@ -140,20 +166,31 @@ class JobStore:
             raise ValueError(f"unknown separation mode {mode!r}")
         return separation.choose_backend(backend, mode)
 
-    def create(self, filename: str, data_path: Path, mode: str = "4stems", backend: str = "auto") -> dict:
-        """Register an uploaded file (moved from ``data_path``) and queue processing."""
-        resolved = self.check_options(mode, backend)
+    def create(self, filename: str, data_path: Path, mode: str = "4stems", backend: str = "auto",
+               package_folder: Path | None = None) -> dict:
+        """Register an uploaded file (moved from ``data_path``) and queue processing.
+
+        A zip, or ``package_folder`` (a folder of stems, read where it is), is a package of stems.
+        """
+        is_package = package_folder is not None or Path(filename).suffix.lower() == ".zip"
+        resolved = "package" if is_package else self.check_options(mode, backend)
         song_id = uuid.uuid4().hex
         folder = self.root / song_id
         (folder / "stems").mkdir(parents=True)
-        suffix = re.sub(r"[^a-z0-9.]", "", Path(filename).suffix.lower())[:8] or ".bin"
-        source = folder / f"source{suffix}"
-        shutil.move(str(data_path), source)
-        title = Path(filename).stem.strip() or "Untitled"
+        if package_folder is None:
+            suffix = re.sub(r"[^a-z0-9.]", "", Path(filename).suffix.lower())[:8] or ".bin"
+            source = folder / f"source{suffix}"
+            shutil.move(str(data_path), source)
+        # A folder's name is all name: "Song-Album-Ab-63.00bpm" has no extension to take off.
+        source_name = package_folder.name if package_folder is not None else Path(filename).stem
+        title = source_name.strip() or "Untitled"
         song = {
             "id": song_id, "title": title[:200], "artist": "", "cover": False, "edited": [],
-            "source": source.name,
-            "mode": mode, "backend": resolved, "requested_backend": backend, "warning": None,
+            "source": source.name if package_folder is None else None,
+            "package_folder": str(package_folder) if package_folder is not None else None,
+            "source_name": source_name[:200],
+            "mode": PACKAGE if is_package else mode, "backend": resolved, "requested_backend": backend,
+            "warning": None,
             "status": "queued", "stage": "Waiting", "progress": 0.0, "error": None,
             "stems": [], "analysis": None,
             "created_at": time.time(), "updated_at": time.time(),
@@ -168,6 +205,9 @@ class JobStore:
     def _process(self, song_id: str) -> None:
         try:
             song = self._update(song_id, status="processing", stage="Decoding", progress=0.05)
+            if song["mode"] == PACKAGE:
+                self._process_package(song_id, song)
+                return
             folder = self.song_dir(song_id)
             source = folder / song["source"]
             stems_dir = folder / "stems"
@@ -204,6 +244,87 @@ class JobStore:
                 self._update(song_id, status="error", stage="Failed", error=str(exc)[:2000])
             except SongNotFound:
                 pass  # deleted while processing
+
+    def _process_package(self, song_id: str, song: dict) -> None:
+        """Read a package's stems as they are: no separation, the analysis from the stems."""
+        folder = self.song_dir(song_id)
+        stems_dir = folder / "stems"
+        unpacked = folder / "package"
+        self._update(song_id, stage="Reading the stems", progress=0.05)
+        source = Path(song["package_folder"]) if song.get("package_folder") else folder / song["source"]
+        try:
+            pkg = package.unpack(source, unpacked, song["source_name"])
+        finally:
+            if not song.get("package_folder"):
+                source.unlink(missing_ok=True)  # the zip: its stems are out now
+        fields: dict = {}
+        for name in ("title", "artist"):
+            if pkg.get(name) and name not in song.get("edited", []):
+                fields[name] = str(pkg[name])[:200]
+        if pkg["artwork"]:
+            fields["cover"] = audio.extract_cover(unpacked / pkg["artwork"], folder / "cover.jpg")
+        self._update(song_id, **fields)
+
+        sr, half = audio.SEPARATION_SR, audio.ANALYSIS_SR
+        ids: list[str] = []
+        used: set[str] = {ORIGINAL}
+        names, kinds = {}, {}
+        sums: dict[str, np.ndarray | None] = {"full": None, "full_mono": None, "harmonic": None}
+        click = reference = None
+
+        def add(key: str, y: np.ndarray) -> None:
+            total = sums[key]
+            if total is None:
+                sums[key] = y.copy()
+                return
+            n = max(total.shape[-1], y.shape[-1])
+            pad = lambda a: np.pad(a, [(0, 0)] * (a.ndim - 1) + [(0, n - a.shape[-1])])  # noqa: E731
+            sums[key] = pad(total) + pad(y)
+
+        for i, stem in enumerate(pkg["stems"]):
+            self._update(song_id, stage=f"Reading the stems: {stem['name']}",
+                         progress=round(0.08 + 0.5 * i / len(pkg["stems"]), 3))
+            y = audio.load(unpacked / stem["file"], sr, mono=False)
+            mono = resample_poly(y.mean(axis=0), half, sr).astype(np.float32)
+            kind = stem["kind"]
+            if kind == "reference" and reference is None:
+                audio.save(stems_dir / f"{ORIGINAL}.mp3", y, sr)
+                reference = mono
+                continue
+            sid = stems.stem_id(stem["name"], used)
+            audio.save(stems_dir / f"{sid}.mp3", y, sr)
+            ids.append(sid)
+            names[sid], kinds[sid] = stem["name"], kind
+            if kind == "click" and click is None:
+                click = mono
+            if kind not in stems.NOT_MUSIC:
+                add("full", y)
+                add("full_mono", mono)
+            if kind in stems.HARMONIC:
+                add("harmonic", mono)
+        shutil.rmtree(unpacked, ignore_errors=True)
+
+        full = sums["full_mono"] if sums["full_mono"] is not None else reference
+        if full is None:
+            raise audio.AudioError("it has only a click or guide track, no music to analyse")
+        if full.size < MIN_SECONDS * half:
+            seconds = full.size / half
+            raise audio.AudioError(f"the audio is only {seconds:.1f} s long; songs need at least {MIN_SECONDS} s")
+        if reference is None:
+            mix = sums["full"]
+            peak = float(np.abs(mix).max()) if mix.size else 0.0
+            audio.save(stems_dir / f"{ORIGINAL}.mp3", mix * (0.98 / peak if peak > 0.98 else 1.0), sr)
+
+        self._update(song_id, stage="Detecting key, tempo and chords", progress=0.65)
+        result = analysis.analyze_package(full, sums["harmonic"], click, half,
+                                          key_hint=stems.parse_key(str(pkg.get("key") or "")),
+                                          bpm_hint=float(pkg["bpm"]) if pkg.get("bpm") else None)
+        warning = None
+        if pkg["skipped"]:
+            warning = "Left out: " + "; ".join(f"{s['name']} ({s['reason']})" for s in pkg["skipped"])
+        self._update(song_id, status="ready", stage="Ready", progress=1.0, analysis=result,
+                     stems=[ORIGINAL, *ids], stem_names=names, stem_kinds=kinds, warning=warning,
+                     package={"named_by": pkg["named_by"], "key": pkg.get("key"), "bpm": pkg.get("bpm")})
 
     def _separate(self, song_id: str, song: dict, source: Path):
         """Separate with the song's backend, reporting progress between 45 % and 85 %."""

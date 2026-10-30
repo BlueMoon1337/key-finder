@@ -1,7 +1,7 @@
 // Contract between the renderer and the Electron main process. Types only: imported by both sides.
 
-/** Where a song is being added from (the Add a Song sheet). */
-export type ImportSource = 'file' | 'camera' | 'music'
+/** Where a song is being added from (the Add a Song sheet). 'stems': a zip or folder of stems. */
+export type ImportSource = 'file' | 'camera' | 'music' | 'stems'
 
 /** Commands from the native menus. */
 export type MenuCommand =

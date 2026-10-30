@@ -344,6 +344,15 @@ function pickOptions(source: ImportSource): Electron.OpenDialogOptions {
       ],
     }
   }
+  if (source === 'stems') {
+    // MultiTracks downloads, folders of stems and Player's song folders (Documents/Player Library/Songs).
+    const player = path.join(app.getPath('documents'), 'Player Library', 'Songs')
+    return {
+      title: 'Stems',
+      defaultPath: existing(player, app.getPath('downloads'), home),
+      filters: [{ name: 'Stem zips', extensions: ['zip'] }],
+    }
+  }
   if (source === 'music') {
     return {
       title: 'Music',
@@ -361,7 +370,7 @@ function pickOptions(source: ImportSource): Electron.OpenDialogOptions {
     title: 'Import File',
     defaultPath: existing(app.getPath('downloads'), home),
     filters: [
-      { name: 'Audio and Video', extensions: media },
+      { name: 'Audio, Video and Stem Zips', extensions: [...media, 'zip'] },
       { name: 'All Files', extensions: ['*'] },
     ],
   }
@@ -375,8 +384,12 @@ function registerIpc() {
   handle('engine:restart', () => engine.restart())
 
   handle('dialog:pick', async (source: unknown) => {
-    const kind: ImportSource = source === 'camera' || source === 'music' ? source : 'file'
-    const opts: Electron.OpenDialogOptions = { buttonLabel: 'Add', properties: ['openFile', 'multiSelections'], ...pickOptions(kind) }
+    const kind: ImportSource = source === 'camera' || source === 'music' || source === 'stems' ? source : 'file'
+    // Stems are zips or folders. A Mac's dialog can offer both; elsewhere it's folders (zips come in through Import File).
+    const stems: Electron.OpenDialogOptions['properties'] =
+      process.platform === 'darwin' ? ['openFile', 'openDirectory', 'multiSelections'] : ['openDirectory', 'multiSelections']
+    const properties = kind === 'stems' ? stems : (['openFile', 'multiSelections'] as Electron.OpenDialogOptions['properties'])
+    const opts: Electron.OpenDialogOptions = { buttonLabel: 'Add', properties, ...pickOptions(kind) }
     const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
     return r.canceled ? [] : r.filePaths
   })
@@ -431,7 +444,7 @@ function registerIpc() {
 
 /** Songs opened with KeyFinder (Open With, dropping on the Dock icon, the command line on Windows). */
 function openFiles(paths: string[]) {
-  const media = new Set([...AUDIO_EXTENSIONS, ...VIDEO_EXTENSIONS])
+  const media = new Set([...AUDIO_EXTENSIONS, ...VIDEO_EXTENSIONS, 'zip'])
   openedFiles.push(...paths.filter((p) => path.isAbsolute(p) && media.has(path.extname(p).slice(1).toLowerCase())))
   if (win && !win.webContents.isLoading()) flushOpenedFiles()
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { beatIndexAt, beatInBar, camelot, keySectionAt, chordIndexAt, chordLabel, formatTime, keyName, keySortValue, keyUsesFlats, relativeKey } from './music'
+import { beatIndexAt, beatInBar, orderStems, camelot, keySectionAt, chordIndexAt, chordLabel, formatTime, keyName, keySortValue, keyUsesFlats, relativeKey } from './music'
 
 describe('keys', () => {
   it('names keys with conventional spellings', () => {
@@ -95,5 +95,14 @@ describe('chords', () => {
     expect(formatTime(0)).toBe('0:00')
     expect(formatTime(61.9)).toBe('1:01')
     expect(formatTime(Number.NaN)).toBe('0:00')
+  })
+})
+
+describe('orderStems', () => {
+  it('lists stems in Player\'s bus order, keeping each kind\'s own order', () => {
+    const kinds = { 'eg-2': 'eg', keys: 'keys', 'click-track': 'click', 'eg-1': 'eg', bgvs: 'vocals', drums: 'drums', odd: 'mystery' }
+    expect(orderStems(['eg-2', 'keys', 'click-track', 'eg-1', 'bgvs', 'drums', 'odd'], kinds)).toEqual([
+      'click-track', 'drums', 'keys', 'eg-2', 'eg-1', 'bgvs', 'odd',
+    ])
   })
 })

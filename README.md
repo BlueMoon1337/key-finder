@@ -24,12 +24,35 @@ A practice app for musicians, for macOS and Windows. Add a song and KeyFinder:
 | **Camera Roll** | Opens in Pictures, showing videos (Photos exports, phone imports) | Videos; on a phone, the photo library |
 | **Music** | Opens in your Music library's media folder, showing songs | Audio files |
 | **Cloud Storage** | A public Google Drive or Dropbox share link, or a direct link to a file. Streaming links (YouTube, Spotify…) won't work. | Same |
+| **Stems** | A song that's already in stems: a MultiTracks.com zip, a folder of stems, or a song folder from Player's library. A Mac's dialog takes zips and folders; on Windows it picks folders, and zips come in through **Import File** (see [Songs in stems](#songs-in-stems)). | A zip of stems |
 
 You can also drop files anywhere on the window, open them with KeyFinder from Finder or Explorer, or use **File ▸ Add a Song… (⌘N / Ctrl+N)** and **File ▸ Import File… (⌘O / Ctrl+O)**. Supported files: MP3, WAV, FLAC, M4A, AAC, AIFF, OGG, WMA, MP4, MOV and other video with an audio track.
 
 In the player, **Space** plays and pauses, **← / →** move 5 seconds, **[ / ]** change the key, **L** turns the loop on and off and **M** the metronome. **⌘↑ / ⌘↓** (Ctrl on Windows) change the speed. Drag across the waveform to loop a section.
 
 **Profile** shows library statistics, the defaults for new songs (how to split them, and the chord detail), the library folder, and updates.
+
+### Songs in stems
+
+KeyFinder recognizes stems the way [Player](https://github.com/BlueMoon1337/Player) does, so anything Player imports, KeyFinder imports too. Add a zip or folder with **Stems**, drop it on the window, or use **Import File** for a zip:
+
+| What | What KeyFinder takes from it |
+| --- | --- |
+| **MultiTracks.com zips** (`Goodness of God-Victory-Ab-63.00bpm.zip`) and the folders they unzip to | The title, key and tempo from the name; the WAVs in `MultiTracks/` as the stems; `Album.jpg` as the cover. |
+| **Player song folders** (`Documents/Player Library/Songs/…`) | The title, artist, key and tempo from its `song.json`, its stems by their names in Player, and the stem Player uses as the click. |
+| **KeyFinder's own Player exports** | Everything they went out with: the artist, the stems, the Click Track, and the Reference mix as the original. |
+| **Any folder or zip of audio files** | Each file a stem, named after the file (a prefix they all share, like `My Song - `, is dropped). |
+
+Nothing is separated: the stems are used as they are. Each one is sorted by name into the parts Player's buses use (Click, Guide, Drums, Percussion, Loops, Bass, Piano, Keys, Electric and Acoustic Guitars, Strings, Horns, Vocals, FX), with Playback's list of track names and the shorthand MultiTracks uses (`EG 1`, `BGVs`, `Synth Pad`, `MD`). The mixer lists them in that order, and says what a stem is when its name doesn't.
+
+The analysis uses the parts:
+
+- **Beats and bars** come from the **Click Track** when there is one: every click a beat, and the accented clicks the first beat of each bar (4/4, 3/4 or 6/8 alike). Where the click stops, KeyFinder carries on at its tempo.
+- **Key and chords** come from the instruments that carry the harmony (bass, keys, piano, guitars, strings, horns), not the drums, vocals, click or guide. A key the package names (MultiTracks' name, Player's song) is kept; key changes inside it are still found.
+- **Tempo:** the name's BPM, when the beats agree with it (the beat tracker's ½× or 2× is corrected to it).
+- **The original** is the package's reference mix (`Reference`, `Original`, `Full Mix`) when it has one; otherwise the stems mixed, without the click and guide.
+
+Zips imported from disk in the desktop app can be up to 8 GB; uploads in a browser are limited to 500 MB (`KEYFINDER_MAX_UPLOAD_MB`).
 
 ### Exporting for Player
 
@@ -38,8 +61,8 @@ In the player's **Practice** panel, choose **Stems for Player** and **Export Ste
 | In the zip | What Player does with it |
 | --- | --- |
 | Its name, `Title-Artist-Key-BPMbpm.zip` (e.g. `Yo Venceré-Danilo Montero-Cm-156.00bpm.zip`) | Title, artist, key and tempo. Keep the name as it is: it's the only place Player reads the key from. The artist goes where MultiTracks put the album; Player knows it's a KeyFinder export by the WAVs' software tag and reads it as the artist. |
-| `MultiTracks/Vocals.wav`, `Drums.wav`, `Bass.wav`… | One channel per stem, each on its bus (vocals, drums, bass, piano, guitar). |
-| `MultiTracks/Click Track.wav` | The song's click, on the beats KeyFinder found, accented on each bar. It follows a live performance's tempo, which a click from one BPM can't. It goes to Player's Click bus. |
+| `MultiTracks/Vocals.wav`, `Drums.wav`, `Bass.wav`… | One channel per stem, each on its bus (vocals, drums, bass, piano, guitar). A song that came in stems keeps its stems' names (`EG 1`, `BGVs`, `Guide`). |
+| `MultiTracks/Click Track.wav` | The song's click, on the beats KeyFinder found, accented on each bar. It follows a live performance's tempo, which a click from one BPM can't. It goes to Player's Click bus. A song that came with its own click sends that one. |
 | `MultiTracks/Reference.wav` | The original mix, for Player's **Reference Track** setting. |
 | Tags in each WAV | Title and artist, "KeyFinder" as the software, the tempo and 4/4, and for a song that changes key, a section at each key change ("D minor", "C minor"). |
 | `Album.jpg` | The cover. |

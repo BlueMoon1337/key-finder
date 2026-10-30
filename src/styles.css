@@ -627,6 +627,9 @@ code {
 .tile.cloud {
   background: linear-gradient(160deg, #3b82f6, #6d28d9);
 }
+.tile.stems {
+  background: linear-gradient(160deg, #22c55e, #0f766e);
+}
 .source-text {
   display: grid;
   gap: 6px;
@@ -941,6 +944,14 @@ code {
   text-transform: capitalize;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stem .name .kind {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  text-transform: none;
 }
 .toggle {
   width: 36px;

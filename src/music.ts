@@ -23,6 +23,22 @@ const SUFFIX: Record<string, string> = {
 
 export const mod12 = (n: number) => ((n % 12) + 12) % 12
 
+/** Player's bus order, which the mixer lists stems in, and each kind's short name. */
+export const STEM_KINDS: [string, string][] = [
+  ['click', 'Click'], ['guide', 'Guide'], ['drums', 'Drums'], ['percussion', 'Perc'], ['loops', 'Loops'],
+  ['bass', 'Bass'], ['piano', 'Piano'], ['keys', 'Keys'], ['eg', 'EG'], ['ag', 'AG'], ['strings', 'Strings'],
+  ['horns', 'Horns'], ['vocals', 'Vocals'], ['fx', 'FX'], ['aux', 'Aux'], ['reference', 'Ref'],
+]
+
+/** Stem ids in Player's bus order; stems of one kind keep their order (EG 1 before EG 2). */
+export function orderStems(ids: string[], kinds: Record<string, string>) {
+  const rank = (id: string) => {
+    const i = STEM_KINDS.findIndex(([k]) => k === kinds[id])
+    return i < 0 ? STEM_KINDS.length : i
+  }
+  return ids.map((id, i) => ({ id, i })).sort((a, b) => rank(a.id) - rank(b.id) || a.i - b.i).map((x) => x.id)
+}
+
 export function keyName(tonic: number, mode: Key['mode']) {
   return `${(mode === 'major' ? MAJOR_TONIC : MINOR_TONIC)[mod12(tonic)]} ${mode}`
 }

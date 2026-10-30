@@ -58,7 +58,7 @@ def test_full_flow(client, song_bytes):
     export = client.get(f"/api/songs/{song_id}/export",
                         params={"semitones": 1, "speed": 0.8, "volumes": "vocals:0,accompaniment:1", "format": "wav"})
     assert export.status_code == 200
-    assert "no%20vocals" in export.headers["content-disposition"]
+    assert "no%20Vocals" in export.headers["content-disposition"]
 
     assert client.delete(f"/api/songs/{song_id}").status_code == 204
     assert client.get(f"/api/songs/{song_id}").status_code == 404

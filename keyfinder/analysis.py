@@ -34,19 +34,21 @@ def plain_chords(pitch: dict, sr: int, beats: list[float], detected_key: dict) -
     return chords.recognize(chroma, bass, beat_frames, fps, level="basic", key=detected_key, plain=True)
 
 
-def settle_key(pitch: dict, sr: int, beats: list[float], first_key: dict, duration: float) -> tuple[dict, list, dict]:
+def settle_key(pitch: dict, sr: int, beats: list[float], first_key: dict, duration: float,
+               known: bool = False) -> tuple[dict, list, dict]:
     """The key from the chords, the key sections, and the chords read in them: (key, sections, levels).
 
     The key and its sections are judged on plain triads; the chords people see are read with
-    colour notes and the bass taken into account, in the key (or keys) found.
+    colour notes and the bass taken into account, in the key (or keys) found. A ``known`` key
+    (a MultiTracks name's, or a Player song's) stays the song's key; only its sections are found.
     """
     fps = sr / features.HOP
     triads = plain_chords(pitch, sr, beats, first_key)
-    refined = key.refine_with_chords(first_key, triads)
+    refined = first_key if known else key.refine_with_chords(first_key, triads)
     if refined["name"] != first_key["name"]:
         triads = plain_chords(pitch, sr, beats, refined)
     sections = key.find_key_sections(pitch["chroma"], fps, triads, refined, duration)
-    if len(sections) > 1:
+    if len(sections) > 1 and not known:
         # A song that changes key is labelled with the key it starts in (as charts do); the
         # whole-song estimate can land on a key that none of its sections is in.
         refined = key.with_key(refined, sections[0]["tonic"], sections[0]["mode"])
@@ -139,6 +141,56 @@ def analyze_signal(y: np.ndarray, sr: int = audio.ANALYSIS_SR) -> dict:
         "chords": levels,
         "waveform": audio.waveform_peaks(y),
     }
+
+
+def analyze_package(full: np.ndarray, harmonic: np.ndarray | None, click: np.ndarray | None,
+                    sr: int = audio.ANALYSIS_SR, key_hint: tuple[int, str] | None = None,
+                    bpm_hint: float | None = None) -> dict:
+    """The analysis of a song that arrives as stems (a MultiTracks download, a Player song).
+
+    ``full`` is the music (every stem but the click, guide and reference mix) and ``harmonic``
+    the parts that carry the harmony, which the key and chords are read from. A ``click`` (the
+    Click Track) gives the beats and bars exactly. A key or BPM the package names is the
+    arranger's, so it's kept; the beat tracker's tempo is doubled or halved to agree with it.
+    """
+    fps = sr / features.HOP
+    pitch = features.pitch_features(harmonic if harmonic is not None else full, sr)
+    rhythm = tempo.beats_from_click(click, sr, bpm_hint) if click is not None else None
+    beats_from = "click" if rhythm else "audio"
+    if rhythm is None:
+        onset = features.onset_strength(full, sr)
+        bass_onset = features.onset_strength(full, sr, max_freq=200.0)
+        rhythm = tempo.analyze_rhythm(onset, bass_onset, fps)
+    click_bars = rhythm.get("downbeats")
+    per_bar = rhythm.get("beats_per_bar", 4)
+    if not click_bars:
+        rhythm["downbeats"] = rhythm["beats"][::per_bar]
+
+    detected = key.detect_key(pitch["chroma"])
+    first = key.with_key(detected, *key_hint) if key_hint else detected
+    refined, sections, levels = settle_key(pitch, sr, rhythm["beats"], first, full.size / sr, known=bool(key_hint))
+    if not click_bars:
+        rhythm["downbeats"] = downbeats_from_chords(rhythm["beats"], levels["basic"], rhythm["downbeats"])
+    result = {
+        "duration": round(full.size / sr, 3),
+        "tuning_cents": round(100.0 * pitch["tuning"], 1),
+        "key": refined,
+        "key_sections": sections,
+        **rhythm,
+        "chords": levels,
+        "waveform": audio.waveform_peaks(full),
+        "sources": {"beats": beats_from, "key": "name" if key_hint else "audio", "bpm": "audio"},
+    }
+    if bpm_hint:
+        ratio = bpm_hint / result["bpm"]
+        if beats_from == "audio" and 1.8 < ratio < 2.2:
+            result = scale_tempo(result, 2)
+        elif beats_from == "audio" and 0.45 < ratio < 0.55:
+            result = scale_tempo(result, 0.5)
+        if abs(bpm_hint / result["bpm"] - 1) < 0.04:
+            result["bpm"] = round(float(bpm_hint), 2)
+            result["sources"] = {**result["sources"], "bpm": "name"}
+    return result
 
 
 def scale_tempo(result: dict, factor: float) -> dict:

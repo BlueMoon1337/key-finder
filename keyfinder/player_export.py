@@ -10,7 +10,8 @@ Player imports MultiTracks.com downloads, so the package follows their layout:
   marker at each key change, which Player turns into song sections;
 * ``Click Track.wav``, clicked on the beats KeyFinder found and accented on the downbeats.
   Player plays a stem by that name as the song's click, so the click follows the
-  performance, which a click generated from one BPM can't;
+  performance, which a click generated from one BPM can't. A song that came with its own
+  click (a MultiTracks download) keeps that one instead, and its other stems their names;
 * ``Album.jpg``, the cover, when there is one.
 
 Pitch and speed apply to every stem, the click and the markers, so a song exported two
@@ -27,20 +28,10 @@ from pathlib import Path
 import numpy as np
 
 from . import audio, key, transform
+from .jobs import ORIGINAL, stem_labels
 
 SR = transform.SR
-BEATS_PER_BAR = 4
 CLICK_STEM = "Click Track"
-# KeyFinder's stems by the names Player routes to the right bus (vocals, drums, bass, piano…).
-STEM_NAMES = {
-    "vocals": "Vocals",
-    "drums": "Drums",
-    "bass": "Bass",
-    "guitar": "Guitar",
-    "piano": "Piano",
-    "other": "Other",
-    "accompaniment": "Backing",
-}
 REFERENCE = "Reference"  # the original mix; Player hides it unless its Reference Track setting is on
 FULL_MIX = "Song"  # the original, when the song wasn't split
 
@@ -99,9 +90,9 @@ def _info(title: str, artist: str) -> bytes:
     return _chunk(b"LIST", b"INFO" + fields)
 
 
-def _acid(bpm: float, beats: int) -> bytes:
+def _acid(bpm: float, beats: int, per_bar: int = 4) -> bytes:
     # flags, root note, two unused fields, number of beats, meter denominator and numerator, tempo.
-    return _chunk(b"acid", struct.pack("<IHHfIHHf", 0, 60, 0x8000, 0.0, beats, 4, BEATS_PER_BAR, bpm))
+    return _chunk(b"acid", struct.pack("<IHHfIHHf", 0, 60, 0x8000, 0.0, beats, 4, per_bar, bpm))
 
 
 def _cues(markers: list[tuple[int, str]]) -> bytes:
@@ -139,8 +130,17 @@ def build(song: dict, folder: Path, dest: Path, semitones: int = 0, speed: float
     transform._check(semitones, speed)
     result = song["analysis"]
     name = package_name(song, semitones, speed)
-    stems = [s for s in song["stems"] if s != "original"]
-    files = [(s, STEM_NAMES.get(s, s.title())) for s in stems] + [("original", REFERENCE if stems else FULL_MIX)]
+    parts = [s for s in song["stems"] if s != ORIGINAL]
+    names, kinds = stem_labels(song)
+    files, used = [], set()
+    for sid, label in [(s, names[s]) for s in parts] + [(ORIGINAL, REFERENCE if parts else FULL_MIX)]:
+        label = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', " ", label).strip() or "Stem"
+        unique, n = label, 2
+        while unique.lower() in used:
+            unique, n = f"{label} {n}", n + 1
+        used.add(unique.lower())
+        files.append((sid, unique))
+    own_click = any(kinds.get(s) == "click" for s in parts)
 
     beats = [b / speed for b in result["beats"]]
     downbeats = [d / speed for d in result["downbeats"]]
@@ -152,7 +152,8 @@ def build(song: dict, folder: Path, dest: Path, semitones: int = 0, speed: float
             markers.append((int(round(s["start"] / speed * SR)), label))
         markers[0] = (0, markers[0][1])
     metadata = (_info(song.get("title") or "", song.get("artist") or "")
-                + _acid(round(result["bpm"] * speed, 2), len(beats)) + _cues(markers))
+                + _acid(round(result["bpm"] * speed, 2), len(beats), result.get("beats_per_bar", 4))
+                + _cues(markers))
 
     # Every stem and the click the same length, so they line up to the sample in Player: decoding
     # and time-stretching each MP3 can leave a few milliseconds more or less.
@@ -165,7 +166,9 @@ def build(song: dict, folder: Path, dest: Path, semitones: int = 0, speed: float
                 y = transform.shift(audio.load(folder / "stems" / f"{stem}.mp3", SR, mono=False), semitones, speed)
                 y = np.pad(y, ((0, 0), (0, max(0, frames - y.shape[1]))))[:, :frames]
                 _write_wav(zf, f"{name}/MultiTracks/{label}.wav", y, metadata)
-            _write_wav(zf, f"{name}/MultiTracks/{CLICK_STEM}.wav", click_track(beats, downbeats, frames), metadata)
+            if not own_click:
+                click = click_track(beats, downbeats, frames)
+                _write_wav(zf, f"{name}/MultiTracks/{CLICK_STEM}.wav", click, metadata)
             cover = folder / "cover.jpg"
             if cover.exists():
                 zf.write(cover, f"{name}/Album.jpg")

@@ -2,7 +2,7 @@ import { type ReactNode, useRef, useState } from 'react'
 import type { SeparationMode } from '../api'
 import { type ImportSource, desktop } from '../platform'
 import { addFiles, addPaths, addUrl, errorMessage, setState, toast, updateSettings, useApp } from '../store'
-import { ChevronLeftIcon, FilesTile, LinkTile, MusicTile, PhotosTile } from './Icons'
+import { ChevronLeftIcon, FilesTile, LinkTile, MusicTile, PhotosTile, StemsTile } from './Icons'
 import { Sheet } from './Sheet'
 
 const MEDIA_ACCEPT = 'audio/*,video/*,.mp3,.wav,.flac,.m4a,.aac,.aif,.aiff,.ogg,.wma,.mp4,.mov,.m4v'
@@ -12,6 +12,7 @@ const WEB_ACCEPT: Record<ImportSource, string> = {
   file: MEDIA_ACCEPT,
   camera: 'video/*',
   music: 'audio/*',
+  stems: '.zip,application/zip',
 }
 
 const SEPARATIONS: { value: SeparationMode; label: string }[] = [
@@ -73,6 +74,11 @@ export function AddSongSheet() {
           <Source tile={<LinkTile />} className="cloud" title="Cloud Storage" onClick={() => setPage('url')}>
             Any media from cloud services or public URLs. Streaming links won’t work.
           </Source>
+          <Source tile={<StemsTile />} className="stems" title="Stems" onClick={() => void pick('stems')}>
+            {desktop
+              ? 'A MultiTracks download, a folder of stems, or a song from Player. Its stems are used as they are.'
+              : 'A MultiTracks download or a zip of stems. Its stems are used as they are.'}
+          </Source>
         </div>
       ) : (
         <form
@@ -111,7 +117,7 @@ export function AddSongSheet() {
 
       <footer className="sheet-footer">
         <strong>Supported files</strong>
-        <span>MP3, WAV, FLAC, M4A, MP4, MOV, WMA</span>
+        <span>MP3, WAV, FLAC, M4A, MP4, MOV, WMA, and stems as a zip{desktop ? ' or folder' : ''}</span>
       </footer>
 
       <input

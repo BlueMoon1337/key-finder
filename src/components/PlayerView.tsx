@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { type Chord, type ChordLevel, type ExportOptions, type Song, coverUrl, editSong, exportPath, getSong, playerPackageName, saveFromApi } from '../api'
-import { beatInBar, beatIndexAt, camelot, chordIndexAt, chordLabel, formatTime, keyName, keySectionAt, keyUsesFlats, relativeKey } from '../music'
+import { STEM_KINDS, beatInBar, beatIndexAt, camelot, chordIndexAt, chordLabel, formatTime, keyName, keySectionAt, keyUsesFlats, orderStems, relativeKey } from '../music'
 import { MAX_SPEED, MIN_SPEED, playback } from '../playback'
 import { errorMessage, loadSong, navigate, refreshLibrary, toast, updateSettings, useApp } from '../store'
 import { Back5Icon, ChevronLeftIcon, Forward5Icon, LibraryIcon, PauseIcon, PlayIcon } from './Icons'
@@ -74,7 +74,9 @@ function Player({ song }: { song: Song }) {
     ? `key ${sectionIndex + 1} of ${sections.length}${sections[sectionIndex + 1] ? `, then ${keyName(sections[sectionIndex + 1].tonic + semitones, sections[sectionIndex + 1].mode)} at ${formatTime(sections[sectionIndex + 1].start)}` : ''}`
     : semitones
       ? `original ${a.key.name}`
-      : `${Math.round(a.key.confidence * 100)}% confidence`
+      : a.sources?.key === 'name'
+        ? 'as the stems name it'
+        : `${Math.round(a.key.confidence * 100)}% confidence`
   const chords = a.chords[level] ?? []
 
   return (
@@ -91,7 +93,11 @@ function Player({ song }: { song: Song }) {
       <section className="stats">
         <Stat label="Key" value={keyName(tonic, current.mode)} sub={keySub} />
         <Stat label="Camelot" value={camelot(tonic, current.mode)} sub={`relative ${relativeKey(tonic, current.mode)}`} />
-        <Stat label="Tempo" value={(a.bpm * speed).toFixed(speed === 1 ? 1 : 0)} sub={speed === 1 ? 'BPM' : `BPM (original ${a.bpm})`}>
+        <Stat
+          label="Tempo"
+          value={(a.bpm * speed).toFixed(speed === 1 ? 1 : 0)}
+          sub={`${speed === 1 ? 'BPM' : `BPM (original ${a.bpm})`}${a.sources?.beats === 'click' ? ' · beats from the Click Track' : ''}`}
+        >
           <TempoFix song={song} />
         </Stat>
         <Stat label="Tuning" value={`${a.tuning_cents > 0 ? '+' : ''}${Math.round(a.tuning_cents)}`} sub="cents from A440" />
@@ -100,7 +106,7 @@ function Player({ song }: { song: Song }) {
       <NowPlaying song={song} chords={chords} semitones={semitones} flatsAt={flatsAt} />
 
       <div className="columns">
-        <Mixer warning={song.warning} />
+        <Mixer song={song} />
         <Practice song={song} />
       </div>
       <p className="shortcuts">
@@ -338,14 +344,26 @@ function NowPlaying({ song, chords, semitones, flatsAt }: { song: Song; chords: 
 
 // ---------------------------------------------------------------- mixer
 
-function Mixer({ warning }: { warning: string | null }) {
-  const tracks = usePlayback((p) => p.tracks)
+function Mixer({ song }: { song: Song }) {
+  const playing = usePlayback((p) => p.tracks)
+  const byName = new Map(playing.map((t) => [t.name, t]))
+  const tracks = orderStems([...byName.keys()], song.stem_kinds ?? {}).map((id) => byName.get(id)!)
+  const kindName = new Map(STEM_KINDS)
+  // What a package's stem is, when its name doesn't already say ("Other" → Aux, "Kick 2" → Drums).
+  const kindLabel = (id: string) => {
+    const kind = kindName.get(song.stem_kinds?.[id] ?? '')
+    const name = (song.stem_names?.[id] ?? id).toLowerCase()
+    return song.mode === 'stems' && kind && !name.includes(kind.toLowerCase()) ? <small className="kind">{kind}</small> : null
+  }
   return (
     <section className="panel">
       <h2>Mixer</h2>
       {tracks.map((t) => (
         <div className="stem" key={t.name}>
-          <span className="name">{t.name === 'original' ? 'Song' : t.name}</span>
+          <span className="name" title={song.stem_names?.[t.name]}>
+            {t.name === 'original' ? 'Song' : (song.stem_names?.[t.name] ?? t.name)}
+            {kindLabel(t.name)}
+          </span>
           <button className={`toggle mute ${t.muted ? 'on' : ''}`} title={`Mute ${t.name}`} onClick={() => playback.setTrack(t.name, { muted: !t.muted })}>
             M
           </button>
@@ -364,8 +382,10 @@ function Mixer({ warning }: { warning: string | null }) {
           />
         </div>
       ))}
-      {tracks.length === 1 && <p className="hint">This song wasn’t split into stems. Add it again with separation on to mix vocals, drums and bass.</p>}
-      {warning && <p className="hint warning">{warning}</p>}
+      {tracks.length === 1 && song.mode !== 'stems' && (
+        <p className="hint">This song wasn’t split into stems. Add it again with separation on to mix vocals, drums and bass.</p>
+      )}
+      {song.warning && <p className="hint warning">{song.warning}</p>}
     </section>
   )
 }

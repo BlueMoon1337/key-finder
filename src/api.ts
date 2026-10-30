@@ -19,7 +19,8 @@ export interface SongSummary {
   /** Something to know about how it was processed (e.g. Demucs couldn't be downloaded). */
   warning: string | null
   created_at: number
-  mode: SeparationMode
+  /** 'stems': it arrived as stems (a zip, a folder, a Player song) and wasn't separated. */
+  mode: SeparationMode | 'stems'
   backend: string | null
   stems: string[]
   key?: string
@@ -73,10 +74,20 @@ export interface Analysis {
   beats_per_bar: number
   chords: Record<ChordLevel, Chord[]>
   waveform: number[]
+  /** For a song that arrived as stems: where the beats, key and tempo came from. */
+  sources?: { beats: 'click' | 'audio'; key: 'name' | 'audio'; bpm: 'name' | 'audio' }
 }
+
+/** What a stem is, by Player's buses (plus the reference mix). */
+export type StemKind =
+  | 'click' | 'guide' | 'reference' | 'drums' | 'percussion' | 'loops' | 'bass' | 'piano' | 'keys'
+  | 'eg' | 'ag' | 'strings' | 'horns' | 'vocals' | 'fx' | 'aux'
 
 export interface Song extends SongSummary {
   analysis: Analysis | null
+  /** Each stem's name ("EG 1", "Click Track") and kind, by id. */
+  stem_names: Record<string, string>
+  stem_kinds: Record<string, StemKind>
 }
 
 export interface DemucsStatus {
