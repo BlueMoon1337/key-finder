@@ -17,6 +17,7 @@ def song(**overrides):
     analysis = {
         "key": {"tonic": 2, "mode": "minor", "name": "D minor"},
         "bpm": 120.0,
+        "duration": 8.0,
         "beats": [0.5 * i for i in range(16)],
         "downbeats": [0.0, 2.0, 4.0, 6.0],
         "key_sections": [],
@@ -104,12 +105,12 @@ def test_package_is_laid_out_as_player_imports_it(song_folder):
         stems = ("Vocals.wav", "Backing.wav", "Reference.wav", "Click Track.wav")
         assert sorted(names) == sorted(root + f for f in stems)
         assert all(i.compress_type == zipfile.ZIP_STORED for i in zf.infolist())
-        wav = read_wav(zf.read(root + "Vocals.wav"))
-        click = read_wav(zf.read(root + "Click Track.wav"))
+        wavs = {f: read_wav(zf.read(root + f)) for f in stems}
+        wav, click = wavs["Vocals.wav"], wavs["Click Track.wav"]
     sr = player_export.SR
     assert wav["fmt"][:3] == (1, 2, sr) and click["fmt"][1] == 1
-    assert wav["frames"] == pytest.approx(16 * sr, rel=0.01)  # 8 s at half speed
-    assert click["frames"] == wav["frames"]
+    # 8 s at half speed, every stem to the sample, however each one decoded and stretched.
+    assert {w["frames"] for w in wavs.values()} == {16 * sr}
     assert (wav["num"], wav["den"], round(wav["bpm"], 2)) == (4, 4, 60.0)
     assert wav["INAM"] == "Yo Venceré" and wav["IART"] == "Danilo Montero"
     assert wav["ISFT"] == "KeyFinder"  # how Player knows the name's second slot is the artist
