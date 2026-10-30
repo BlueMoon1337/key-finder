@@ -6,7 +6,7 @@
 // Pitch can't be changed live, so transposed stems are rendered by the engine and swapped in.
 
 import { type Song, apiUrl, stemPath } from './api'
-import { beatIndexAt } from './music'
+import { beatIndexAt, keySectionAt } from './music'
 
 export interface TrackState {
   name: string
@@ -181,7 +181,9 @@ class Playback {
       if (t < a || t >= b) this.seek(a)
     }
     if (this.snapshot.countIn && song.analysis?.bpm) {
-      const beat = 60 / (song.analysis.bpm * this.snapshot.speed)
+      // Count in at the tempo where playback starts, in a song that changes tempo.
+      const here = keySectionAt(song.analysis.tempo_sections, this.time())
+      const beat = 60 / ((here?.bpm ?? song.analysis.bpm) * this.snapshot.speed)
       const start = this.context().currentTime + 0.05
       for (let i = 0; i < 4; i++) this.click(start + i * beat, i === 0, true)
       this.set({ countingIn: true })

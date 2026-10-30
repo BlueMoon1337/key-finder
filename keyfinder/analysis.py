@@ -190,6 +190,8 @@ def analyze_package(full: np.ndarray, harmonic: np.ndarray | None, click: np.nda
         if abs(bpm_hint / result["bpm"] - 1) < 0.04:
             result["bpm"] = round(float(bpm_hint), 2)
             result["sources"] = {**result["sources"], "bpm": "name"}
+            if result.get("tempo_sections"):  # the name gives the first tempo; later ones stay measured
+                result["tempo_sections"][0] = {**result["tempo_sections"][0], "bpm": result["bpm"]}
     return result
 
 
@@ -213,7 +215,9 @@ def scale_tempo(result: dict, factor: float) -> dict:
     first = int(np.argmin(np.abs(times - result["downbeats"][0]))) if result["downbeats"] else 0
     current = [round(float(t), 3) for t in times[first % 4::4]]
     downbeats = downbeats_from_chords(new, result["chords"]["basic"], current)
-    return {**result, "beats": new, "downbeats": downbeats, "bpm": round(result["bpm"] * factor, 1)}
+    sections = [{**s, "bpm": round(s["bpm"] * factor, 1)} for s in result.get("tempo_sections") or []]
+    return {**result, "beats": new, "downbeats": downbeats, "bpm": round(result["bpm"] * factor, 1),
+            "tempo_sections": sections}
 
 
 def improve_with_stems(result: dict, stems: dict[str, np.ndarray], sr: int) -> dict:

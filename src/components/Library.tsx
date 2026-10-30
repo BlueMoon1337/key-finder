@@ -251,8 +251,9 @@ function SongRow({ song: s, current, onOpen, menu }: { song: SongSummary; curren
         </span>
       ) : (
         <>
-          <span className="cell" role="cell">
+          <span className="cell" role="cell" title={s.tempos ? s.tempos.map((t) => Math.round(t)).join(' → ') : undefined}>
             {s.bpm ? Math.round(s.bpm) : '-'}
+            {s.tempos && <span className="key-changes"> +{s.tempos.length - 1}</span>}
           </span>
           <span className="cell" role="cell" title={s.keys ? s.keys.join(' → ') : s.duration ? formatTime(s.duration) : undefined}>
             {s.key ?? '-'}

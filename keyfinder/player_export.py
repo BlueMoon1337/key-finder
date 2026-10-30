@@ -6,8 +6,8 @@ Player imports MultiTracks.com downloads, so the package follows their layout:
   KeyFinder has no album and puts the artist in its place; the WAVs' software tag (``ISFT``
   "KeyFinder") tells Player to read it as the artist;
 * ``MultiTracks/`` holding one WAV per stem. Each WAV also carries the title, artist and
-  software (``LIST/INFO``), the tempo and meter (``acid``) and, when the song changes key, a cue
-  marker at each key change, which Player turns into song sections;
+  software (``LIST/INFO``), the tempo and meter (``acid``) and, when the song changes key or
+  tempo, a cue marker at each change, which Player turns into song sections;
 * ``Click Track.wav``, clicked on the beats KeyFinder found and accented on the downbeats.
   Player plays a stem by that name as the song's click, so the click follows the
   performance, which a click generated from one BPM can't. A song that came with its own
@@ -145,11 +145,24 @@ def build(song: dict, folder: Path, dest: Path, semitones: int = 0, speed: float
     beats = [b / speed for b in result["beats"]]
     downbeats = [d / speed for d in result["downbeats"]]
     sections = result.get("key_sections") or []
-    markers = []
+    # A section in Player at each key change and each tempo change; one that comes within a
+    # bar of another (a medley's next song often changes both) shares its marker.
+    changes: list[tuple[float, int, str]] = []  # (time, key before tempo, label)
     if len(sections) > 1:
-        for s in sections:
-            label = key.key_name((s["tonic"] + semitones) % 12, s["mode"])
-            markers.append((int(round(s["start"] / speed * SR)), label))
+        changes += [(s["start"], 0, key.key_name((s["tonic"] + semitones) % 12, s["mode"])) for s in sections]
+    tempos = result.get("tempo_sections") or []
+    if len(tempos) > 1:
+        changes += [(s["start"], 1, f"{round(s['bpm'] * speed)} BPM") for s in tempos]
+    bar = 4 * 60.0 / result["bpm"]
+    merged: list[tuple[float, list]] = []
+    for t, kind, label in sorted(changes):
+        if merged and t - merged[-1][0] < bar:
+            merged[-1][1].append((kind, label))
+        else:
+            merged.append((t, [(kind, label)]))
+    markers = [(int(round(t / speed * SR)), " · ".join(label for _, label in sorted(labels))[:32])
+               for t, labels in merged]
+    if markers:
         markers[0] = (0, markers[0][1])
     metadata = (_info(song.get("title") or "", song.get("artist") or "")
                 + _acid(round(result["bpm"] * speed, 2), len(beats), result.get("beats_per_bar", 4))

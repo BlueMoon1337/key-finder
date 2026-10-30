@@ -116,6 +116,9 @@ class JobStore:
             sections = result.get("key_sections") or []
             if len(sections) > 1:
                 out["keys"] = [s["name"] for s in sections]
+            tempos = result.get("tempo_sections") or []
+            if len(tempos) > 1:
+                out["tempos"] = [s["bpm"] for s in tempos]
         return out
 
     def delete(self, song_id: str) -> None:

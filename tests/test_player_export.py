@@ -147,3 +147,18 @@ def test_server_exports_for_player(tmp_path):
         assert quote(name) in res.headers["content-disposition"]
         with zipfile.ZipFile(io.BytesIO(res.content)) as zf:
             assert sum(n.endswith(".wav") for n in zf.namelist()) == 4
+
+
+def test_tempo_changes_are_sections_too(song_folder):
+    """Each key and tempo change is a marker; ones within a bar of each other share it."""
+    sections = [{"start": 0.0, "end": 4.0, "tonic": 2, "mode": "minor"},
+                {"start": 4.2, "end": 8.0, "tonic": 0, "mode": "minor"}]
+    tempos = [{"start": 0.0, "end": 2.0, "bpm": 120.0}, {"start": 2.0, "end": 4.0, "bpm": 90.0},
+              {"start": 4.0, "end": 8.0, "bpm": 100.0}]
+    s = song(analysis={"key_sections": sections, "tempo_sections": tempos})
+    dest = player_export.build(s, song_folder, song_folder / "out.zip")
+    with zipfile.ZipFile(dest) as zf:
+        wav = read_wav(zf.read(next(n for n in zf.namelist() if n.endswith("Vocals.wav"))))
+    sr = player_export.SR
+    marks = sorted((wav["cues"][i], wav["labels"][i]) for i in wav["cues"])
+    assert marks == [(0, "D minor · 120 BPM"), (2 * sr, "90 BPM"), (4 * sr, "C minor · 100 BPM")]

@@ -58,11 +58,32 @@ function Player({ song }: { song: Song }) {
   // The key at the playhead: medleys and key changes have several (key_sections).
   const sections = a.key_sections && a.key_sections.length > 1 ? a.key_sections : null
   const [sectionIndex, setSectionIndex] = useState(0)
+  // Likewise the tempo: a song that changes tempo has several (tempo_sections).
+  const tempos = a.tempo_sections && a.tempo_sections.length > 1 ? a.tempo_sections : null
+  const [tempoIndex, setTempoIndex] = useState(0)
   useFrame(() => {
-    if (!sections) return
-    const i = sections.indexOf(keySectionAt(sections, playback.time())!)
-    if (i !== sectionIndex) setSectionIndex(i)
+    const t = playback.time()
+    if (sections) {
+      const i = sections.indexOf(keySectionAt(sections, t)!)
+      if (i !== sectionIndex) setSectionIndex(i)
+    }
+    if (tempos) {
+      const i = tempos.indexOf(keySectionAt(tempos, t)!)
+      if (i !== tempoIndex) setTempoIndex(i)
+    }
   })
+  const bpm = tempos ? (tempos[tempoIndex] ?? tempos[0]).bpm : a.bpm
+  const nextTempo = tempos?.[tempoIndex + 1]
+  const tempoSub = [
+    tempos
+      ? `tempo ${tempoIndex + 1} of ${tempos.length}${nextTempo ? `, then ${Math.round(nextTempo.bpm * speed)} at ${formatTime(nextTempo.start)}` : ''}`
+      : speed === 1
+        ? 'BPM'
+        : `BPM (original ${a.bpm})`,
+    a.sources?.beats === 'click' ? 'beats from the Click Track' : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
   const current = sections ? sections[sectionIndex] ?? sections[0] : a.key
   const tonic = current.tonic + semitones
   // Each chord is spelled for the key it's in (Bb in D minor, F# in E minor).
@@ -95,8 +116,8 @@ function Player({ song }: { song: Song }) {
         <Stat label="Camelot" value={camelot(tonic, current.mode)} sub={`relative ${relativeKey(tonic, current.mode)}`} />
         <Stat
           label="Tempo"
-          value={(a.bpm * speed).toFixed(speed === 1 ? 1 : 0)}
-          sub={`${speed === 1 ? 'BPM' : `BPM (original ${a.bpm})`}${a.sources?.beats === 'click' ? ' · beats from the Click Track' : ''}`}
+          value={(bpm * speed).toFixed(speed === 1 ? 1 : 0)}
+          sub={tempoSub}
         >
           <TempoFix song={song} />
         </Stat>

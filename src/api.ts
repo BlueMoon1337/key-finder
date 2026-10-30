@@ -27,6 +27,8 @@ export interface SongSummary {
   camelot?: string
   /** Every key in order, when the song changes key. */
   keys?: string[]
+  /** Every tempo in order, when the song changes tempo. */
+  tempos?: number[]
   bpm?: number
   duration?: number
 }
@@ -62,6 +64,12 @@ export interface KeySection {
   flats: boolean
 }
 
+export interface TempoSection {
+  start: number
+  end: number
+  bpm: number
+}
+
 export interface Analysis {
   duration: number
   tuning_cents: number
@@ -72,6 +80,8 @@ export interface Analysis {
   beats: number[]
   downbeats: number[]
   beats_per_bar: number
+  /** The song's tempos in order; one covering the whole song when it keeps one tempo. */
+  tempo_sections?: TempoSection[]
   chords: Record<ChordLevel, Chord[]>
   waveform: number[]
   /** For a song that arrived as stems: where the beats, key and tempo came from. */

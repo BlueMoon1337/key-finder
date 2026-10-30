@@ -4,7 +4,7 @@
 
 A practice app for musicians, for macOS and Windows. Add a song and KeyFinder:
 
-- **finds its key** (with the Camelot code, the relative key and how sure it is), **tempo**, beat grid and tuning
+- **finds its key** (with the Camelot code, the relative key and how sure it is), **tempo**, beat grid and tuning, and **where the key or tempo changes** (medleys, a faster last song in a live set)
 - **shows the chords** as the song plays, in three levels of detail: basic triads, sevenths, then dim, aug and sus
 - **splits it into stems** with Demucs, Meta AI's neural separator: vocals, drums, bass and other; vocals and accompaniment; or six stems with guitar and piano. A mixer mutes, solos or turns down each one
 - lets you **change the key** (±12 semitones, and the chords transpose with it) and the **speed** (50–150 %, without changing the pitch)
@@ -32,6 +32,17 @@ In the player, **Space** plays and pauses, **← / →** move 5 seconds, **[ / ]
 
 **Profile** shows library statistics, the defaults for new songs (how to split them, and the chord detail), the library folder, and updates.
 
+### Tempo changes
+
+A song that changes tempo partway through (a medley, a live set that moves into a faster song) gets a **tempo section** for each tempo, as a song that changes key gets key sections. The Tempo card shows the tempo at the playhead, with "tempo 2 of 3, then 120 at 4:02"; the library shows the first tempo with "+1"; the count-in counts at the tempo where you start; the metronome follows the beats, so it changes with them. In a Player export, each tempo change is a section ("120 BPM", or "C minor · 120 BPM" when the key changes with it).
+
+What counts as a change:
+
+- **At least 10 % and 30 seconds.** A band pushing a few percent, a ritardando at the end, or a pianist's rubato stays one tempo; the beats follow them anyway.
+- **Not the same beat counted differently.** Half time and double time aren't changes. A dotted-eighth guitar delay or a triplet feel pulses at 4:3 or 3:2 of the tempo and can sound like a new one, so a new tempo also has to be in the low end (kick and bass) before it counts. A real change from 90 to 120 is; a delay over a steady groove isn't.
+
+With a Click Track, the click decides: a new tempo is wherever its clicks settle into a different spacing (10 % or more, for 30 seconds).
+
 ### Songs in stems
 
 KeyFinder recognizes stems the way [Player](https://github.com/BlueMoon1337/Player) does, so anything Player imports, KeyFinder imports too. Add a zip or folder with **Stems**, drop it on the window, or use **Import File** for a zip:
@@ -47,7 +58,7 @@ Nothing is separated: the stems are used as they are. Each one is sorted by name
 
 The analysis uses the parts:
 
-- **Beats and bars** come from the **Click Track** when there is one: every click a beat, and the accented clicks the first beat of each bar (4/4, 3/4 or 6/8 alike). Where the click stops, KeyFinder carries on at its tempo.
+- **Beats and bars** come from the **Click Track** when there is one: every click a beat, and the accented clicks the first beat of each bar (4/4, 3/4 or 6/8 alike). Where the click stops, KeyFinder carries on at the tempo it had, and where the click changes tempo, so does the song (see [Tempo changes](#tempo-changes)).
 - **Key and chords** come from the instruments that carry the harmony (bass, keys, piano, guitars, strings, horns), not the drums, vocals, click or guide. A key the package names (MultiTracks' name, Player's song) is kept; key changes inside it are still found.
 - **Tempo:** the name's BPM, when the beats agree with it (the beat tracker's ½× or 2× is corrected to it).
 - **The original** is the package's reference mix (`Reference`, `Original`, `Full Mix`) when it has one; otherwise the stems mixed, without the click and guide.
@@ -99,7 +110,7 @@ How the analysis works:
 | Feature | Method |
 | --- | --- |
 | Key | Tuning-corrected chroma correlated with Krumhansl–Kessler and Temperley key profiles. Relative major/minor ties are broken with the chord sequence (time on the tonic chord, the first and last chord). |
-| Tempo and beats | Spectral-flux onsets → prior-weighted autocorrelation → Ellis's dynamic-programming beat tracker; downbeats from low-frequency accents. |
+| Tempo and beats | Spectral-flux onsets → prior-weighted autocorrelation → Ellis's dynamic-programming beat tracker; downbeats from low-frequency accents. Tempo changes: the tempo in 12-second windows, octave-folded and smoothed with a Viterbi pass, and the beats tracked section by section (below). |
 | Chords | Beat-synchronous chroma and bass chroma, template matching against the chord vocabulary, a key-aware prior, and Viterbi smoothing weighted by duration. |
 | Stems | [Demucs](https://github.com/adefossez/demucs) (Hybrid Transformer Demucs: `htdemucs`, and `htdemucs_6s` for six stems), run in the engine's process (`keyfinder/neural.py`). The fallback is a fast DSP separator (harmonic/percussive median filtering, stereo centre extraction, crossovers) that gives stems adding back up to the mix. |
 | Pitch | Rendered by the engine and cached: Rubber Band (formant-preserving) when a system FFmpeg has it, else FFmpeg's `asetrate` + `atempo`. |

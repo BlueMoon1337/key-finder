@@ -166,3 +166,20 @@ def test_tempo_can_be_doubled_and_halved(client, song_bytes):
     back = client.get(f"/api/songs/{song_id}").json()["analysis"]
     assert back["beats"] == before["beats"] and back["bpm"] == pytest.approx(before["bpm"], abs=0.2)
     assert client.patch(f"/api/songs/{song_id}", json={"tempo": "triple"}).status_code == 422
+
+
+def test_a_song_that_changes_tempo(client, tmp_path):
+    from synth import SR, progression
+
+    chords = [(2, "maj"), (9, "maj"), (11, "min"), (7, "maj")]
+    y = np.concatenate([progression(chords, bpm=90, repeats=6), progression(chords, bpm=120, repeats=6)])
+    path = tmp_path / "medley.wav"
+    audio.save(path, y, SR)
+    song_id = upload_named(client, path.read_bytes(), "medley.wav").json()["id"]
+    summary = next(s for s in client.get("/api/songs").json() if s["id"] == song_id)
+    assert summary["bpm"] == pytest.approx(90, rel=0.02)
+    assert summary["tempos"] == [pytest.approx(90, rel=0.02), pytest.approx(120, rel=0.02)]
+    # ½× / 2× scale every section.
+    client.patch(f"/api/songs/{song_id}", json={"tempo": "double"})
+    sections = client.get(f"/api/songs/{song_id}").json()["analysis"]["tempo_sections"]
+    assert [s["bpm"] for s in sections] == [pytest.approx(180, rel=0.02), pytest.approx(240, rel=0.02)]

@@ -96,3 +96,65 @@ def test_one_stray_change_does_not_shift_the_bar():
     changes = [i for i in range(0, 80, 4) if i != 40] + [41]
     segments = [{"start": 0.0, "root": 0}] + [{"start": beats[i], "root": i % 12} for i in sorted(changes)[1:]]
     assert downbeats_from_chords(beats, segments, beats[0::4]) == beats[0::4]
+
+
+# ------------------------------------------------------------------ tempo changes
+
+FPS = SR / features.HOP
+CHANGE_CHORDS = [(2, "maj"), (9, "maj"), (11, "min"), (7, "maj")]
+
+
+def rhythm_of(y):
+    return tempo.analyze_rhythm(features.onset_strength(y, SR), features.onset_strength(y, SR, max_freq=200.0), FPS)
+
+
+@pytest.mark.parametrize("first, second", [(90, 120), (120, 100), (78, 104), (130, 96)])
+def test_a_tempo_change_makes_two_sections(first, second):
+    a = progression(CHANGE_CHORDS, bpm=first, repeats=6)
+    y = np.concatenate([a, progression(CHANGE_CHORDS, bpm=second, repeats=6)])
+    cut = a.size / SR
+    result = rhythm_of(y)
+    sections = result["tempo_sections"]
+    assert [s["bpm"] for s in sections] == [pytest.approx(first, rel=0.02), pytest.approx(second, rel=0.02)]
+    assert sections[1]["start"] == pytest.approx(cut, abs=4.0)
+    assert result["bpm"] == sections[0]["bpm"]  # the song's tempo is its first, as a chart gives it
+    beats = np.asarray(result["beats"])
+    assert np.mean(np.diff(beats[beats < cut - 4])) == pytest.approx(60 / first, rel=0.02)
+    assert np.mean(np.diff(beats[beats > cut + 4])) == pytest.approx(60 / second, rel=0.02)
+
+
+def test_steady_songs_keep_one_tempo():
+    y = progression(CHANGE_CHORDS, bpm=112, repeats=12)
+    assert len(rhythm_of(y)["tempo_sections"]) == 1
+    # Half time, a small push (6 %): the same tempo, counted differently or played a little faster.
+    halftime = np.concatenate([y, progression(CHANGE_CHORDS, bpm=56, repeats=6)])
+    assert len(rhythm_of(halftime)["tempo_sections"]) == 1
+    pushed = np.concatenate([y, progression(CHANGE_CHORDS, bpm=118.7, repeats=12)])
+    assert len(rhythm_of(pushed)["tempo_sections"]) == 1
+
+
+def test_a_dotted_eighth_delay_is_not_a_new_tempo():
+    """A guitar delay on dotted eighths pulses at 4:3 of the tempo; the kick and bass don't."""
+    y = progression(CHANGE_CHORDS, bpm=128, repeats=14)
+    t = np.arange(int(0.04 * SR)) / SR
+    tick = (np.sin(2 * np.pi * 2500 * t) * np.exp(-t / 0.008)).astype(np.float32)
+    for p in np.arange(30.0, 75.0, 0.75 * 60 / 128):  # dotted eighths, for 45 seconds
+        s = int(p * SR)
+        y[s:s + tick.size] += 0.9 * tick[: y.size - s]
+    assert len(rhythm_of(y)["tempo_sections"]) == 1
+
+
+def test_click_track_sections():
+    def grid(*parts):
+        t, out = 1.0, []
+        for bpm, n in parts:
+            for _ in range(n):
+                out.append(t)
+                t += 60 / bpm
+        return out
+
+    assert len(tempo.sections_from_beats(grid((90, 120)))) == 1
+    assert len(tempo.sections_from_beats(grid((78, 60), (84, 60)))) == 1  # under 10 %: a push, not a change
+    sections = tempo.sections_from_beats(grid((90, 60), (120, 80)))
+    assert [s["bpm"] for s in sections] == [pytest.approx(90, abs=0.2), pytest.approx(120, abs=0.2)]
+    assert sections[1]["start"] == pytest.approx(1 + 60 * 60 / 90, abs=0.7)
