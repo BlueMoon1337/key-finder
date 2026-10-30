@@ -112,6 +112,7 @@ def test_package_is_laid_out_as_player_imports_it(song_folder):
     assert click["frames"] == wav["frames"]
     assert (wav["num"], wav["den"], round(wav["bpm"], 2)) == (4, 4, 60.0)
     assert wav["INAM"] == "Yo Venceré" and wav["IART"] == "Danilo Montero"
+    assert wav["ISFT"] == "KeyFinder"  # how Player knows the name's second slot is the artist
     # Key changes become sections, transposed and at the new speed.
     assert [(wav["cues"][i], wav["labels"][i]) for i in (1, 2)] == [(0, "E minor"), (8 * sr, "D minor")]
 

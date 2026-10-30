@@ -2,10 +2,11 @@
 
 Player imports MultiTracks.com downloads, so the package follows their layout:
 
-* a zip named ``Title-Album-Key-BPMbpm.zip``, which is where Player reads the key and tempo
-  (the second slot is the album; KeyFinder puts the artist there, as it has no album);
-* ``MultiTracks/`` holding one WAV per stem. Each WAV also carries the title and artist
-  (``LIST/INFO``), the tempo and meter (``acid``) and, when the song changes key, a cue
+* a zip named ``Title-Album-Key-BPMbpm.zip``, which is where Player reads the key and tempo.
+  KeyFinder has no album and puts the artist in its place; the WAVs' software tag (``ISFT``
+  "KeyFinder") tells Player to read it as the artist;
+* ``MultiTracks/`` holding one WAV per stem. Each WAV also carries the title, artist and
+  software (``LIST/INFO``), the tempo and meter (``acid``) and, when the song changes key, a cue
   marker at each key change, which Player turns into song sections;
 * ``Click Track.wav``, clicked on the beats KeyFinder found and accented on the downbeats.
   Player plays a stem by that name as the song's click, so the click follows the

@@ -37,11 +37,11 @@ In the player's **Practice** panel, choose **Stems for Player** and **Export Ste
 
 | In the zip | What Player does with it |
 | --- | --- |
-| Its name, `Title-Artist-Key-BPMbpm.zip` (e.g. `Yo Venceré-Danilo Montero-Cm-156.00bpm.zip`) | Title, key and tempo. Keep the name as it is: it's the only place Player reads the key from. The artist goes where MultiTracks put the album. |
+| Its name, `Title-Artist-Key-BPMbpm.zip` (e.g. `Yo Venceré-Danilo Montero-Cm-156.00bpm.zip`) | Title, artist, key and tempo. Keep the name as it is: it's the only place Player reads the key from. The artist goes where MultiTracks put the album; Player knows it's a KeyFinder export by the WAVs' software tag and reads it as the artist. |
 | `MultiTracks/Vocals.wav`, `Drums.wav`, `Bass.wav`… | One channel per stem, each on its bus (vocals, drums, bass, piano, guitar). |
 | `MultiTracks/Click Track.wav` | The song's click, on the beats KeyFinder found, accented on each bar. It follows a live performance's tempo, which a click from one BPM can't. It goes to Player's Click bus. |
 | `MultiTracks/Reference.wav` | The original mix, for Player's **Reference Track** setting. |
-| Tags in each WAV | Title and artist, the tempo and 4/4, and for a song that changes key, a section at each key change ("D minor", "C minor"). |
+| Tags in each WAV | Title and artist, "KeyFinder" as the software, the tempo and 4/4, and for a song that changes key, a section at each key change ("D minor", "C minor"). |
 | `Album.jpg` | The cover. |
 
 The export uses the pitch and speed you hear, so a song exported two semitones down at 90 % arrives in Player in its new key and tempo. The mixer's levels don't apply: Player mixes the stems itself. The stems are 16-bit WAVs, about 10 MB a minute each.
