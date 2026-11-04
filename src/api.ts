@@ -29,6 +29,8 @@ export interface SongSummary {
   keys?: string[]
   /** Every tempo in order, when the song changes tempo. */
   tempos?: number[]
+  /** Songs added before lyrics existed have none. */
+  lyrics_status?: LyricsStatus
   bpm?: number
   duration?: number
 }
@@ -101,8 +103,37 @@ export type StemKind =
   | 'click' | 'guide' | 'reference' | 'drums' | 'percussion' | 'loops' | 'bass' | 'piano' | 'keys'
   | 'eg' | 'ag' | 'strings' | 'horns' | 'vocals' | 'fx' | 'aux'
 
+export interface LyricWord {
+  start: number
+  end: number
+  text: string
+}
+
+export interface LyricLine {
+  start: number
+  end: number
+  words: LyricWord[]
+}
+
+export interface Lyrics {
+  /** Where the words came from; 'edited' once corrected by hand. */
+  source: 'lrclib' | 'whisper' | 'edited'
+  language: string | null
+  lines: LyricLine[]
+  lrclib?: { id: number; track: string; artist: string } | null
+  edited_from?: 'lrclib' | 'whisper'
+}
+
+export type LyricsMode = 'auto' | 'online' | 'off'
+export type LyricsStatus = 'waiting' | 'queued' | 'working' | 'ready' | 'none' | 'failed' | 'off'
+
 export interface Song extends SongSummary {
   analysis: Analysis | null
+  lyrics?: Lyrics | null
+  lyrics_mode?: LyricsMode
+  lyrics_stage?: string | null
+  lyrics_note?: string | null
+  lyrics_progress?: number
   /** Each stem's name ("EG 1", "Click Track") and kind, by id. */
   stem_names: Record<string, string>
   stem_kinds: Record<string, StemKind>
@@ -118,6 +149,15 @@ export interface DemucsStatus {
   download_error?: string | null
 }
 
+export interface LyricsModelStatus {
+  installed: boolean
+  model?: string
+  size_mb?: number
+  downloaded?: boolean
+  downloading?: boolean
+  download_error?: string | null
+}
+
 export interface Capabilities {
   version: string
   backends: string[]
@@ -127,6 +167,7 @@ export interface Capabilities {
   max_upload_mb: number
   desktop: boolean
   demucs: DemucsStatus
+  lyrics?: LyricsModelStatus
 }
 
 export class ApiError extends Error {
@@ -168,6 +209,10 @@ const json = (method: string, body: unknown): RequestInit => ({
 })
 
 export const getCapabilities = () => request<Capabilities>('/api/capabilities')
+export const downloadLyricsModel = () => request<LyricsModelStatus>('/api/lyrics/download', { method: 'POST' })
+export const findLyrics = (id: string, mode?: 'auto' | 'online') =>
+  request<SongSummary>(`/api/songs/${id}/lyrics`, json('POST', { mode: mode ?? null }))
+export const editLyrics = (id: string, lines: string[]) => request<Lyrics>(`/api/songs/${id}/lyrics`, json('PUT', { lines }))
 export const downloadDemucs = (model: string) => request<DemucsStatus>('/api/demucs/download', json('POST', { model }))
 export const listSongs = () => request<SongSummary[]>('/api/songs')
 export const getSong = (id: string) => request<Song>(`/api/songs/${id}`)
@@ -178,6 +223,7 @@ export const editSong = (id: string, patch: { title?: string; artist?: string; t
 export interface ImportOptions {
   mode: SeparationMode
   backend: Backend
+  lyrics: LyricsMode
 }
 
 /** Browser: upload a file. */
@@ -186,6 +232,7 @@ export function uploadFile(file: File, opts: ImportOptions) {
   form.append('file', file)
   form.append('mode', opts.mode)
   form.append('backend', opts.backend)
+  form.append('lyrics', opts.lyrics)
   return request<SongSummary>('/api/songs', { method: 'POST', body: form })
 }
 

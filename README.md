@@ -10,6 +10,7 @@ A practice app for musicians, for macOS and Windows. Add a song and KeyFinder:
 - lets you **change the key** (±12 semitones, and the chords transpose with it) and the **speed** (50–150 %, without changing the pitch)
 - has a **metronome that follows the song's own beats**, a one-bar **count-in** and **A–B loops** that snap to beats
 - **exports** your mix (the song without vocals, two semitones down at 80 %, say) as MP3, WAV or M4A
+- **shows the lyrics with the chords over the words**, following the song as it plays (see [Lyrics](#lyrics))
 - **exports stems for [Player](https://github.com/BlueMoon1337/Player)**, the multitrack player: every stem, a click track on the song's own beats, the key and the tempo (see [Exporting for Player](#exporting-for-player))
 
 ## Using it
@@ -31,6 +32,19 @@ You can also drop files anywhere on the window, open them with KeyFinder from Fi
 In the player, **Space** plays and pauses, **← / →** move 5 seconds, **[ / ]** change the key, **L** turns the loop on and off and **M** the metronome. **⌘↑ / ⌘↓** (Ctrl on Windows) change the speed. Drag across the waveform to loop a section.
 
 **Profile** shows library statistics, the defaults for new songs (how to split them, and the chord detail), the library folder, and updates.
+
+### Lyrics
+
+After a song is ready, KeyFinder finds its lyrics and shows them under the chords as a chart: each chord over the word it changes on, the line being sung bright and kept in view, its words lighting up as they're sung, and the chord playing now highlighted. Intros, solos and outros show their chords on a row of their own. Click a line to go there. The chords follow **Pitch** and the **Chords** detail, like the rest of the player.
+
+The words come from two places:
+
+- **LRCLIB** ([lrclib.net](https://lrclib.net)), a free database of song lyrics, many with a time for each line. KeyFinder looks the song up by its title, artist and length, and sends nothing else. A video's title is cleaned up first ("YO TE BUSCO | STEPHANIE CALZADILLA | CENTRO VIDA" → *Yo Te Busco* by *Stephanie Calzadilla*; "… (Letra)", "con letra en HD" and the like are dropped).
+- **Whisper** (OpenAI's speech recognition, through faster-whisper), on this computer: it listens to the vocals stem (a package's lead vocal stem, or the whole song when it wasn't split) and writes down every word with its time. Its model (`large-v3-turbo`, about 1.6 GB) is downloaded once, the first time it's needed, or from **Profile ▸ Lyrics**. Allow a minute or two per song on Apple silicon, longer on Intel Macs and Windows.
+
+With both, LRCLIB's words (spelled right) are timed by what Whisper heard, word by word; and if they don't match what's sung (LRCLIB has the studio version, you added a live one), Whisper's own words are used. Whisper can mishear a word (Moises' "Pondadoso" for "Bondadoso"): **Edit** corrects the lyrics line by line, keeping their timing. **Find again** looks them up again.
+
+**Profile ▸ New songs ▸ Lyrics** chooses what happens for new songs: **Look up online, else transcribe** (the default), **Look up online only** (no Whisper, so no model download; LRCLIB's line times, with the words spread across each line), or **Off**. Songs added before lyrics existed have a **Find Lyrics** button.
 
 ### Tempo changes
 
@@ -111,7 +125,7 @@ After that, **Profile ▸ Updates** installs new versions by itself (see [Releas
 | `electron/` | The desktop app's main process. Its window, menus, IPC trust check, window-state memory, single-instance lock, updater and release scripts come from [Player](https://github.com/BlueMoon1337/Player). |
 | `src/` | The interface: React and TypeScript, built with Vite. It runs in the desktop app or a browser (`src/platform` hides the difference, as in Player). |
 | `keyfinder/` | The analysis engine, in Python. The desktop app runs it as a child process (`keyfinder/engine.py`) that listens on 127.0.0.1 and answers only requests carrying a token made for that launch. The app adds the token as it passes requests through its `app://keyfinder/api` protocol, so nothing else on the computer can use the engine. |
-| `packaging/` | Freezes the engine, Demucs and PyTorch included, with PyInstaller, so the app needs no Python. Audio goes through PyAV (FFmpeg's libraries), so no FFmpeg install is needed either. |
+| `packaging/` | Freezes the engine, Demucs, PyTorch and Whisper included, with PyInstaller, so the app needs no Python. Audio goes through PyAV (FFmpeg's libraries), so no FFmpeg install is needed either. |
 
 How the analysis works:
 
@@ -154,7 +168,7 @@ npm run dev        # the desktop app, reloading as you edit; it runs the engine 
 npm run dev:web    # the same interface in a browser at http://localhost:5173
 ```
 
-On Windows the virtual environment's Python is `.venv\Scripts\python.exe`. For Demucs, also run `pip install -e ".[ml]"`. On Linux, install CPU-only PyTorch first unless you have an NVIDIA GPU (`pip install torch --index-url https://download.pytorch.org/whl/cpu`); PyPI's Linux PyTorch includes several gigabytes of CUDA libraries.
+On Windows the virtual environment's Python is `.venv\Scripts\python.exe`. For Demucs and lyrics transcription, also run `pip install -e ".[ml]"`. On Linux, install CPU-only PyTorch first unless you have an NVIDIA GPU (`pip install torch --index-url https://download.pytorch.org/whl/cpu`); PyPI's Linux PyTorch includes several gigabytes of CUDA libraries.
 
 The engine also works on its own:
 
@@ -215,4 +229,7 @@ The engine's HTTP API, used by the interface:
 | `GET` | `/api/songs/{id}/stems/{stem}?semitones=n` | a stem, optionally in another key |
 | `GET` | `/api/songs/{id}/export?semitones=&speed=&volumes=vocals:0,drums:0.5&format=mp3` | a rendered mix |
 | `GET` | `/api/songs/{id}/export?semitones=&speed=&format=player` | the stems package for Player (a zip) |
+| `POST` | `/api/songs/{id}/lyrics` | find the lyrics again (`{"mode": "auto"}` or `"online"`) |
+| `PUT` | `/api/songs/{id}/lyrics` | correct the lyrics (`{"lines": ["…", "…"]}`, one string per line; `""` removes it) |
+| `POST` | `/api/lyrics/download` | download the Whisper model ahead of time |
 | `GET` | `/api/songs/{id}/export/player-name?semitones=&speed=` | the package's file name |

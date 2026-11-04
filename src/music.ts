@@ -1,6 +1,6 @@
 // Key and chord names, transposed for the pitch control. Mirrors keyfinder/key.py and chords.py.
 
-import type { Chord, Key } from './api'
+import type { Chord, Key, LyricLine } from './api'
 
 const SHARP = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 const FLAT = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B']
@@ -133,4 +133,67 @@ export function keySortValue(name: string | undefined) {
   const [tonic, mode] = name.split(' ')
   const pc = Math.max(SHARP.indexOf(tonic), FLAT.indexOf(tonic))
   return pc < 0 ? 98 : pc * 2 + (mode === 'minor' ? 1 : 0)
+}
+
+/** A word of a lyric line with the chords that change on it (in order). */
+export interface PlacedWord {
+  text: string
+  start: number
+  end: number
+  chords: Chord[]
+}
+
+export type LyricRow =
+  | { kind: 'line'; index: number; start: number; end: number; words: PlacedWord[] }
+  /** A stretch without words (intro, solo, outro): its chords on their own. */
+  | { kind: 'break'; start: number; end: number; chords: Chord[] }
+
+/** A pause between lines this long, with chords in it, gets a row of its own. */
+const BREAK_SECONDS = 4
+/** A chord this close before a word belongs to it (players change a hair early). */
+const EARLY = 0.35
+
+/**
+ * The lyrics laid out as a chart: each chord over the word being sung when it changes, the chord
+ * already playing over a line's first word, and the chords of an intro, a solo or an outro on
+ * rows of their own. Chords in a short pause go over the last word before it.
+ */
+export function placeChords(lines: LyricLine[], chords: Chord[]): LyricRow[] {
+  const real = chords.filter((c) => c.root !== null)
+  const rows: LyricRow[] = []
+  const used = new Set<Chord>()
+  const breakRow = (from: number, to: number) => {
+    const inside = real.filter((c) => c.start >= from && c.start < to && !used.has(c))
+    inside.forEach((c) => used.add(c))
+    if (inside.length) rows.push({ kind: 'break', start: from, end: to, chords: inside })
+  }
+  if (lines.length && lines[0].start >= BREAK_SECONDS) breakRow(0, lines[0].start - EARLY)
+  lines.forEach((line, i) => {
+    const next = lines[i + 1]?.start ?? Infinity
+    const longPause = next - line.end >= BREAK_SECONDS
+    // Chords from just before the line to its end, or on to the next line if the pause is short.
+    const until = longPause ? line.end + 0.5 : next - EARLY
+    const words: PlacedWord[] = line.words.map((w) => ({ ...w, chords: [] }))
+    for (const c of real) {
+      if (used.has(c) || c.start < line.start - EARLY || c.start >= until) continue
+      let k = 0
+      while (k + 1 < words.length && words[k + 1].start <= c.start + EARLY) k++
+      words[k].chords.push(c)
+      used.add(c)
+    }
+    if (words.length && !words[0].chords.length) {
+      const playing = real.find((c) => c.start <= line.start && c.end > line.start)
+      if (playing) words[0].chords.unshift(playing)
+    }
+    rows.push({ kind: 'line', index: i, start: line.start, end: line.end, words })
+    if (longPause) breakRow(line.end + 0.5, Number.isFinite(next) ? next - EARLY : Infinity)
+  })
+  return rows
+}
+
+/** Index of the line being sung at `t` (the last one started), or -1 before the first. */
+export function lineIndexAt(lines: LyricLine[], t: number) {
+  let found = -1
+  for (let i = 0; i < lines.length && lines[i].start <= t + 0.15; i++) found = i
+  return found
 }

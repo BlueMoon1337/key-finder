@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { beatIndexAt, beatInBar, orderStems, camelot, keySectionAt, chordIndexAt, chordLabel, formatTime, keyName, keySortValue, keyUsesFlats, relativeKey } from './music'
+import type { Chord } from './api'
+import { beatIndexAt, beatInBar, lineIndexAt, orderStems, placeChords, camelot, keySectionAt, chordIndexAt, chordLabel, formatTime, keyName, keySortValue, keyUsesFlats, relativeKey } from './music'
 
 describe('keys', () => {
   it('names keys with conventional spellings', () => {
@@ -104,5 +105,40 @@ describe('orderStems', () => {
     expect(orderStems(['eg-2', 'keys', 'click-track', 'eg-1', 'bgvs', 'drums', 'odd'], kinds)).toEqual([
       'click-track', 'drums', 'keys', 'eg-2', 'eg-1', 'bgvs', 'odd',
     ])
+  })
+})
+
+describe('placeChords', () => {
+  const chord = (start: number, end: number, root: number | null): Chord => ({ start, end, root, quality: root === null ? null : 'maj', label: '' })
+  const line = (start: number, words: [string, number][]) => ({
+    start,
+    end: words[words.length - 1][1] + 0.5,
+    words: words.map(([text, s]) => ({ text, start: s, end: s + 0.5 })),
+  })
+
+  it('puts each chord over the word sung when it changes', () => {
+    const lines = [line(10, [['Rey', 10], ['de', 10.6], ['Gloria', 11.2], ['digno', 13]])]
+    const chords = [chord(0, 9.9, 5), chord(9.9, 12.8, 1), chord(12.8, 20, 3)]
+    const [intro, row] = placeChords(lines, chords)
+    expect(intro).toMatchObject({ kind: 'break', chords: [chords[0]] }) // the intro, on its own row
+    expect(row.kind === 'line' && row.words.map((w) => w.chords.map((c) => c.root))).toEqual([[1], [], [], [3]])
+  })
+
+  it('carries the chord already playing onto a line, and a short pause\'s chords onto the line before', () => {
+    const lines = [line(0, [['a', 0], ['b', 1]]), line(3, [['c', 3], ['d', 4]])]
+    const chords = [chord(0, 2, 0), chord(2, 6, 7)]
+    const rows = placeChords(lines, chords)
+    const roots = rows.map((r) => (r.kind === 'line' ? r.words.map((w) => w.chords.map((c) => c.root)) : null))
+    expect(roots).toEqual([[[0], [7]], [[7], []]])
+  })
+
+  it('gives a long instrumental its own row, and skips no-chord stretches', () => {
+    const lines = [line(0, [['a', 0]]), line(20, [['b', 20]])]
+    const chords = [chord(0, 2, 0), chord(2, 4, null), chord(8, 12, 5), chord(12, 25, 7)]
+    const rows = placeChords(lines, chords)
+    expect(rows.map((r) => r.kind)).toEqual(['line', 'break', 'line'])
+    expect(rows[1].kind === 'break' && rows[1].chords.map((c) => c.root)).toEqual([5, 7])
+    expect(lineIndexAt(lines, 19.9)).toBe(1)
+    expect(lineIndexAt(lines, -1)).toBe(-1)
   })
 })

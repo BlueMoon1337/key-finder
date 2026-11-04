@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { type Backend, type ChordLevel, type SeparationMode, downloadDemucs } from '../api'
+import { type Backend, type ChordLevel, type LyricsMode, type SeparationMode, downloadDemucs, downloadLyricsModel } from '../api'
 import { desktop, isMac } from '../platform'
 import { REPOSITORY_NAME, checkForUpdates, installUpdate, progressText, saveToken, useUpdates } from '../platform/updates'
 import { errorMessage, loadCapabilities, toast, updateSettings, useApp } from '../store'
@@ -78,6 +78,14 @@ export function Profile() {
               <option value="advanced">Advanced (+ dim, aug, sus)</option>
             </select>
           </label>
+          <label>
+            Lyrics
+            <select value={settings.lyrics} onChange={(e) => updateSettings({ lyrics: e.target.value as LyricsMode })}>
+              <option value="auto">Look up online, else transcribe</option>
+              <option value="online">Look up online only</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
         </div>
         {!hasDemucs && (
           <p className="hint">
@@ -88,6 +96,7 @@ export function Profile() {
       </section>
 
       {hasDemucs && <DemucsSection />}
+      <LyricsSection />
 
       {desktop && <EngineSection />}
       {desktop && <UpdatesSection />}
@@ -122,6 +131,58 @@ const DEMUCS_MODELS = [
   { name: 'htdemucs', label: '4-stem model', use: 'vocals, drums, bass, other (and 2 stems)' },
   { name: 'htdemucs_6s', label: '6-stem model', use: 'adds guitar and piano' },
 ]
+
+function LyricsSection() {
+  const status = useApp((s) => s.capabilities?.lyrics)
+  const downloading = !!status?.downloading
+
+  // Follow a download while it runs.
+  useEffect(() => {
+    if (!downloading) return
+    const timer = window.setInterval(() => void loadCapabilities(), 1000)
+    return () => window.clearInterval(timer)
+  }, [downloading])
+
+  return (
+    <section className="panel">
+      <h2>Lyrics</h2>
+      <p className="hint">
+        KeyFinder looks each song up on <b>LRCLIB</b>, a free lyrics database, by its title, artist and length (it sends
+        those, nothing else). When LRCLIB doesn’t have it, <b>Whisper</b> transcribes the vocals on this computer.
+        {status?.installed ? '' : ' Transcription isn’t installed in this engine, so only LRCLIB is used.'}
+      </p>
+      {status?.installed && (
+        <div className="models">
+          <div className="row model">
+            <span className="model-name">
+              <b>Whisper ({status.model})</b>
+              <span className="muted">About {((status.size_mb ?? 0) / 1000).toFixed(1)} GB, downloaded once, the first time it’s needed</span>
+            </span>
+            {status.downloaded ? (
+              <span className="ready">✓ Downloaded</span>
+            ) : downloading ? (
+              <span className="muted">Downloading…</span>
+            ) : (
+              <button
+                onClick={async () => {
+                  try {
+                    await downloadLyricsModel()
+                    await loadCapabilities()
+                  } catch (e) {
+                    toast(errorMessage(e), true)
+                  }
+                }}
+              >
+                Download
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+      {status?.download_error && <p className="error">{status.download_error}</p>}
+    </section>
+  )
+}
 
 function DemucsSection() {
   const demucs = useApp((s) => s.capabilities?.demucs)

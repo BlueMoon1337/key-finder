@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from . import __version__, neural, player_export, remote, separation, stems, tempo, transform
+from . import __version__, lyrics, neural, player_export, remote, separation, stems, tempo, transform
 from .jobs import ORIGINAL, JobStore, SongNotFound, stem_labels
 
 MAX_UPLOAD_BYTES = int(os.environ.get("KEYFINDER_MAX_UPLOAD_MB", "500")) * 1024 * 1024
@@ -51,7 +51,9 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
     data_dir = Path(data_dir or os.environ.get("KEYFINDER_DATA", "data"))
     data_dir.mkdir(parents=True, exist_ok=True)
     # Demucs weights: the desktop app keeps them with its settings, not in the library.
-    neural.configure(Path(models_dir or os.environ.get("KEYFINDER_MODELS") or data_dir / "models"))
+    models = Path(models_dir or os.environ.get("KEYFINDER_MODELS") or data_dir / "models")
+    neural.configure(models)
+    lyrics.configure(models)
     store = JobStore(data_dir, inline=inline)
     render_locks: defaultdict[Path, threading.Lock] = defaultdict(threading.Lock)
 
@@ -85,7 +87,16 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
             "max_upload_mb": MAX_UPLOAD_BYTES // (1024 * 1024),
             "desktop": bool(token),
             "demucs": neural.status(),
+            "lyrics": lyrics.status(),
         }
+
+    @app.post("/api/lyrics/download", status_code=202)
+    def download_lyrics_model():
+        """Fetch the Whisper model ahead of time (Profile); /api/capabilities shows how it went."""
+        if not lyrics.available():
+            raise HTTPException(400, "transcription isn't installed in this engine")
+        lyrics.download()
+        return lyrics.status()
 
     @app.post("/api/demucs/download", status_code=202)
     def download_demucs(model: str = Body("htdemucs", embed=True)):
@@ -103,7 +114,8 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
         return store.list()
 
     @app.post("/api/songs", status_code=201)
-    def upload(file: UploadFile = File(...), mode: str = Form("4stems"), backend: str = Form("auto")):
+    def upload(file: UploadFile = File(...), mode: str = Form("4stems"), backend: str = Form("auto"),
+               lyrics_mode: str = Form("auto", alias="lyrics", pattern="^(auto|online|off)$")):
         fd, tmp_name = tempfile.mkstemp(dir=data_dir, prefix="upload-")
         tmp = Path(tmp_name)
         try:
@@ -116,7 +128,7 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
                     out.write(chunk)
             if size == 0:
                 raise HTTPException(400, "empty file")
-            song = store.create(file.filename or "Untitled", tmp, mode=mode, backend=backend)
+            song = store.create(file.filename or "Untitled", tmp, mode=mode, backend=backend, lyrics_mode=lyrics_mode)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         finally:
@@ -124,13 +136,14 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
         return store.summary(song)
 
     @app.post("/api/songs/url", status_code=201)
-    def import_url(url: str = Body(...), mode: str = Body("4stems"), backend: str = Body("auto")):
+    def import_url(url: str = Body(...), mode: str = Body("4stems"), backend: str = Body("auto"),
+                   lyrics_mode: str = Body("auto", alias="lyrics", pattern="^(auto|online|off)$")):
         fd, tmp_name = tempfile.mkstemp(dir=data_dir, prefix="download-")
         os.close(fd)
         tmp = Path(tmp_name)
         try:
             filename = remote.download(url, tmp, MAX_UPLOAD_BYTES)
-            song = store.create(filename, tmp, mode=mode, backend=backend)
+            song = store.create(filename, tmp, mode=mode, backend=backend, lyrics_mode=lyrics_mode)
         except ValueError as exc:  # includes remote.UrlImportError
             raise HTTPException(400, str(exc)) from exc
         finally:
@@ -139,7 +152,8 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
 
     if token:
         @app.post("/api/songs/local", status_code=201)
-        def import_local(paths: list[str] = Body(...), mode: str = Body("4stems"), backend: str = Body("auto")):
+        def import_local(paths: list[str] = Body(...), mode: str = Body("4stems"), backend: str = Body("auto"),
+                         lyrics_mode: str = Body("auto", alias="lyrics", pattern="^(auto|online|off)$")):
             """Desktop only: import files the user picked in a native dialog or dropped on the window.
 
             A folder (of stems, or a Player song) or a zip of stems becomes one song with its stems.
@@ -158,7 +172,8 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
                         files = [p.relative_to(source).as_posix() for p in source.rglob("*") if p.is_file()]
                         if not stems.pick_files(files[:5000])["stems"]:
                             raise ValueError("there are no audio files in the folder")
-                        created.append(store.summary(store.create(source.name, Path(), package_folder=source)))
+                        created.append(store.summary(store.create(source.name, Path(), package_folder=source,
+                                                                  lyrics_mode=lyrics_mode)))
                         continue
                     if not source.is_file():
                         raise ValueError("not a file")
@@ -170,7 +185,8 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
                     tmp = Path(tmp_name)
                     try:
                         shutil.copyfile(source, tmp)
-                        created.append(store.summary(store.create(source.name, tmp, mode=mode, backend=backend)))
+                        created.append(store.summary(store.create(source.name, tmp, mode=mode, backend=backend,
+                                                                  lyrics_mode=lyrics_mode)))
                     finally:
                         tmp.unlink(missing_ok=True)
                 except (OSError, ValueError) as exc:
@@ -212,6 +228,26 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
             # Tempo changes and bar lengths, from the beats as they are now (after a tempo fix too).
             a["beat_map"] = tempo.beat_map(a["beats"], a.get("downbeats") or [], a.get("beats_per_bar", 4))
         return song
+
+    @app.post("/api/songs/{song_id}/lyrics", status_code=202)
+    def find_lyrics(song_id: str, mode: str | None = Body(None, embed=True, pattern="^(auto|online)$")):
+        """Look up / transcribe the lyrics again, or for a song added before there were lyrics."""
+        try:
+            return store.summary(store.find_lyrics(song_id, mode))
+        except SongNotFound as exc:
+            raise not_found(exc) from exc
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.put("/api/songs/{song_id}/lyrics")
+    def edit_lyrics(song_id: str, lines: list[str] = Body(..., embed=True)):
+        """Correct the words, line by line (an empty line removes it)."""
+        try:
+            return store.edit_lyrics(song_id, lines)["lyrics"]
+        except SongNotFound as exc:
+            raise not_found(exc) from exc
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @app.delete("/api/songs/{song_id}", status_code=204)
     def delete_song(song_id: str):

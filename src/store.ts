@@ -6,6 +6,7 @@ import {
   type Capabilities,
   type ChordLevel,
   type ImportOptions,
+  type LyricsMode,
   type SeparationMode,
   type SongSummary,
   deleteSong,
@@ -31,6 +32,8 @@ export interface Settings {
   sort: SortKey
   sortDesc: boolean
   sidebar: boolean
+  /** Lyrics for new songs: LRCLIB, else transcribed ('auto'); LRCLIB only; or none. */
+  lyrics: LyricsMode
 }
 
 export interface Toast {
@@ -62,6 +65,7 @@ const DEFAULT_SETTINGS: Settings = {
   sort: 'added',
   sortDesc: true,
   sidebar: true,
+  lyrics: 'auto',
 }
 
 function loadSettings(): Settings {
@@ -168,12 +172,12 @@ export async function loadCapabilities() {
 }
 
 function importOptions(): ImportOptions {
-  const { mode, backend } = state.settings
+  const { mode, backend, lyrics } = state.settings
   const hasDemucs = state.capabilities?.backends.includes('demucs')
   // The fast DSP separator does 2 or 4 stems; ask for 4 when 6 isn't possible.
-  if (mode === '6stems' && !hasDemucs) return { mode: '4stems', backend: 'auto' }
-  if (backend === 'demucs' && !hasDemucs) return { mode, backend: 'auto' }
-  return { mode, backend }
+  if (mode === '6stems' && !hasDemucs) return { mode: '4stems', backend: 'auto', lyrics }
+  if (backend === 'demucs' && !hasDemucs) return { mode, backend: 'auto', lyrics }
+  return { mode, backend, lyrics }
 }
 
 function added(count: number, failed: string[]) {

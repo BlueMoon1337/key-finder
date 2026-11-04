@@ -27,7 +27,7 @@ from pathlib import Path
 import numpy as np
 from scipy.signal import resample_poly
 
-from . import analysis, audio, neural, package, separation, stems
+from . import analysis, audio, lyrics, neural, package, separation, stems
 
 ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 ORIGINAL = "original"
@@ -107,7 +107,7 @@ class JobStore:
     @staticmethod
     def summary(song: dict) -> dict:
         keep = ("id", "title", "artist", "cover", "status", "progress", "stage", "error", "warning", "created_at",
-                "mode", "backend", "stems")
+                "mode", "backend", "stems", "lyrics_status")
         out = {k: song.get(k) for k in keep}
         result = song.get("analysis") or {}
         if result:
@@ -138,6 +138,94 @@ class JobStore:
             fields["artist"] = artist.strip()[:200]
             edited.add("artist")
         return self._update(song_id, edited=sorted(edited), **fields)
+
+    # ------------------------------------------------------------------ lyrics
+
+    def find_lyrics(self, song_id: str, mode: str | None = None) -> dict:
+        """Look up / transcribe a ready song's lyrics again (or for the first time) in the background."""
+        song = self.get(song_id)
+        if song["status"] != "ready":
+            raise ValueError("song is still processing")
+        if song.get("lyrics_status") in ("queued", "working"):
+            raise ValueError("its lyrics are already being found")
+        if mode is not None and mode not in lyrics.MODES:
+            raise ValueError(f"unknown lyrics mode {mode!r}")
+        song = self._update(song_id, lyrics_mode=mode or song.get("lyrics_mode") or "auto")
+        self._queue_lyrics(song_id, force=True)
+        return self.get(song_id)
+
+    def edit_lyrics(self, song_id: str, lines: list[str]) -> dict:
+        song = self.get(song_id)
+        if not (song.get("lyrics") or {}).get("lines"):
+            raise ValueError("this song has no lyrics to edit")
+        return self._update(song_id, lyrics=lyrics.edit(song["lyrics"], [str(t)[:300] for t in lines]))
+
+    def _queue_lyrics(self, song_id: str, force: bool = False) -> None:
+        song = self.get(song_id)
+        if song.get("lyrics_mode", "auto") == "off" and not force:
+            self._update(song_id, lyrics_status="off")
+            return
+        self._update(song_id, lyrics_status="queued", lyrics_stage="Waiting", lyrics_note=None)
+        if self.inline:
+            self._find_lyrics(song_id)
+        else:
+            self._pool.submit(self._find_lyrics, song_id)
+
+    def _vocals(self, song: dict):
+        """A loader for the vocals Whisper should hear: the lead vocal stem(s), else the whole song."""
+        folder = self.song_dir(song["id"]) / "stems"
+        names, kinds = stem_labels(song)
+        voices = [s for s in song["stems"] if kinds.get(s) == "vocals"]
+        lead = [s for s in voices if re.search(r"lead|^vocals?$|^vox$", names.get(s, s), re.IGNORECASE)]
+        chosen = lead or voices or [ORIGINAL]
+
+        def load() -> np.ndarray:
+            parts = [audio.load(folder / f"{s}.mp3", lyrics.SR) for s in chosen]
+            n = max(p.size for p in parts)
+            return np.sum([np.pad(p, (0, n - p.size)) for p in parts], axis=0).astype(np.float32)
+        return load
+
+    def _find_lyrics(self, song_id: str) -> None:
+        try:
+            song = self._update(song_id, lyrics_status="working", lyrics_stage="Looking up the lyrics",
+                                lyrics_progress=0.0)
+            mode = song.get("lyrics_mode") or "auto"
+            transcribing = mode == "auto" and lyrics.available()
+            last = [0.0]
+
+            def progress(fraction: float) -> None:
+                if fraction - last[0] >= 0.02:
+                    last[0] = fraction
+                    self._update(song_id, lyrics_stage="Listening to the vocals", lyrics_progress=round(fraction, 3))
+
+            def on_download() -> None:
+                self._update(song_id, lyrics_stage=f"Downloading the lyrics model (first time only, about "
+                                                   f"{lyrics.MODEL_MB / 1000:.1f} GB)")
+
+            def should_stop() -> bool:
+                return not (self.root / song_id / "song.json").exists()
+
+            if transcribing:
+                self._update(song_id, lyrics_stage="Looking up the lyrics, then listening to the vocals")
+            duration = (song.get("analysis") or {}).get("duration") or 0.0
+            try:
+                found = lyrics.find(song["title"], song.get("artist", ""), duration,
+                                    self._vocals(song) if transcribing else None, mode,
+                                    progress, should_stop, on_download)
+            except lyrics.ModelUnavailable as exc:
+                found = lyrics.find(song["title"], song.get("artist", ""), duration, None, "online")
+                found["note"] = str(exc)
+            self._update(song_id, lyrics=found if found["lines"] else None,
+                         lyrics_status="ready" if found["lines"] else "none",
+                         lyrics_stage=None, lyrics_note=found.get("note"))
+        except (lyrics.Cancelled, SongNotFound):
+            pass
+        except Exception as exc:  # noqa: BLE001 - report it on the song; the song itself is fine
+            traceback.print_exc()
+            try:
+                self._update(song_id, lyrics_status="failed", lyrics_stage=None, lyrics_note=str(exc)[:500])
+            except SongNotFound:
+                pass
 
     def scale_tempo(self, song_id: str, factor: float) -> dict:
         """Double or halve a ready song's tempo (when the beat tracker counted half or double time)."""
@@ -170,7 +258,7 @@ class JobStore:
         return separation.choose_backend(backend, mode)
 
     def create(self, filename: str, data_path: Path, mode: str = "4stems", backend: str = "auto",
-               package_folder: Path | None = None) -> dict:
+               package_folder: Path | None = None, lyrics_mode: str = "auto") -> dict:
         """Register an uploaded file (moved from ``data_path``) and queue processing.
 
         A zip, or ``package_folder`` (a folder of stems, read where it is), is a package of stems.
@@ -196,6 +284,9 @@ class JobStore:
             "warning": None,
             "status": "queued", "stage": "Waiting", "progress": 0.0, "error": None,
             "stems": [], "analysis": None,
+            # Lyrics (lyrics.py): found after the song is ready, so it can be played meanwhile.
+            "lyrics_mode": lyrics_mode if lyrics_mode in lyrics.MODES else "auto",
+            "lyrics": None, "lyrics_status": "waiting", "lyrics_stage": None, "lyrics_note": None,
             "created_at": time.time(), "updated_at": time.time(),
         }
         (folder / "song.json").write_text(json.dumps(song))
@@ -239,6 +330,7 @@ class JobStore:
                     audio.save(stems_dir / f"{name}.mp3", data, sr)
                     stems.append(name)
             self._update(song_id, status="ready", stage="Ready", progress=1.0, stems=stems)
+            self._queue_lyrics(song_id)
         except neural.Cancelled:
             pass  # deleted while separating
         except Exception as exc:  # noqa: BLE001 - report any failure on the song itself
@@ -328,6 +420,7 @@ class JobStore:
         self._update(song_id, status="ready", stage="Ready", progress=1.0, analysis=result,
                      stems=[ORIGINAL, *ids], stem_names=names, stem_kinds=kinds, warning=warning,
                      package={"named_by": pkg["named_by"], "key": pkg.get("key"), "bpm": pkg.get("bpm")})
+        self._queue_lyrics(song_id)
 
     def _separate(self, song_id: str, song: dict, source: Path):
         """Separate with the song's backend, reporting progress between 45 % and 85 %."""
@@ -399,6 +492,8 @@ class JobStore:
             if song["status"] in ("queued", "processing"):
                 self._update(song["id"], status="error", stage="Failed",
                              error="Processing was interrupted by a server restart; please re-upload.")
+            elif song.get("lyrics_status") in ("queued", "working"):
+                self._queue_lyrics(song["id"], force=True)  # the song is fine; find its lyrics again
 
     def shutdown(self) -> None:
         if self._pool is not None:
