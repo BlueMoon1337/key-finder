@@ -116,6 +116,8 @@ The apps aren't signed with an Apple Developer ID or a Windows certificate (macO
 - **macOS:** right-click KeyFinder and choose **Open**, or use **System Settings ▸ Privacy & Security ▸ Open Anyway**.
 - **Windows:** in the SmartScreen box, choose **More info ▸ Run anyway**.
 
+To give KeyFinder to someone, or put it on another computer, use **File ▸ Save a Copy of KeyFinder…** (or **Profile ▸ Share KeyFinder**). On a Mac it saves a disk image (`.dmg`, with the usual drag-to-Applications window) or a `.zip` of the app; on Windows, a `.zip` of the installed app, which runs from wherever it's unzipped (open `KeyFinder.exe`). The copy is the app only, about 400 MB: not your library, settings, update token or downloaded models. It's for the same kind of computer it was saved on (Apple silicon or Intel, Windows) and needs the same first-time right-click ▸ Open or More info ▸ Run anyway as a download.
+
 After that, **Profile ▸ Updates** installs new versions by itself (see [Releases](#releases-and-updates)).
 
 ## How it's built

@@ -100,6 +100,7 @@ export function Profile() {
 
       {desktop && <EngineSection />}
       {desktop && <UpdatesSection />}
+      {desktop && <CopySection />}
 
       <section className="panel">
         <h2>About</h2>
@@ -253,6 +254,56 @@ function EngineSection() {
       </p>
       {engine.error && <pre className="log">{engine.error}</pre>}
       {engine.status === 'failed' && <button onClick={() => void desktop!.engine.restart()}>Restart Engine</button>}
+    </section>
+  )
+}
+
+const ARCH: Record<string, string> = { arm64: 'Apple silicon', x64: 'Intel' }
+
+/** Save a copy of KeyFinder itself, to give to someone or take to another computer. */
+function CopySection() {
+  const [info, setInfo] = useState<{ formats: ('dmg' | 'zip')[]; blocker: string | null; arch: string } | null>(null)
+  const [busy, setBusy] = useState<'dmg' | 'zip' | null>(null)
+  const version = useApp((s) => s.capabilities?.version)
+
+  useEffect(() => {
+    void desktop!.copy.info().then(setInfo)
+  }, [])
+
+  if (!info?.formats.length) return null
+  const forWhom = isMac ? `${ARCH[info.arch] ?? info.arch} Macs` : 'Windows (64-bit)'
+  const save = async (format: 'dmg' | 'zip') => {
+    setBusy(format)
+    try {
+      const saved = await desktop!.copy.save(format)
+      if (saved) toast(`Saved ${saved.split(/[\\/]/).pop()}`)
+    } catch (e) {
+      toast(errorMessage(e), true)
+    } finally {
+      setBusy(null)
+    }
+  }
+  return (
+    <section className="panel" id="save-copy">
+      <h2>Share KeyFinder</h2>
+      <p className="hint">
+        Save a copy of KeyFinder {version ?? ''} to give to someone or to install on another computer. It’s the app only: your
+        library, settings and downloaded models stay here. It runs on {forWhom}
+        {isMac ? '' : '; unzip it anywhere and open KeyFinder.exe'}. The first time it’s opened,{' '}
+        {isMac ? 'right-click it and choose Open' : 'choose More info ▸ Run anyway if SmartScreen asks'}, as for a download from Releases.
+      </p>
+      {info.blocker === 'development' ? (
+        <p className="hint">Only the installed app can save a copy of itself, not KeyFinder running from source.</p>
+      ) : (
+        <div className="row wrap">
+          {info.formats.map((f) => (
+            <button key={f} className={f === info.formats[0] ? 'pill-btn accent' : 'pill-btn'} disabled={!!busy} onClick={() => void save(f)}>
+              {busy === f ? (f === 'dmg' ? 'Making the disk image…' : 'Zipping…') : f === 'dmg' ? 'Save as Disk Image (.dmg)…' : 'Save as ZIP…'}
+            </button>
+          ))}
+        </div>
+      )}
+      {busy && <p className="hint">This takes a minute or two. The copy is about 400 MB: most of it is the analysis engine, Demucs and Whisper.</p>}
     </section>
   )
 }

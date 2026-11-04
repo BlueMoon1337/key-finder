@@ -23,6 +23,10 @@ const api: DesktopAPI = {
   reveal: (songId) => ipcRenderer.invoke('library:reveal', songId),
   onOpenFiles: (cb) => listen<string[]>('open-files', cb),
   onMenu: (cb) => listen<MenuCommand>('menu', cb),
+  copy: {
+    info: () => ipcRenderer.invoke('app:copy-info'),
+    save: (format) => ipcRenderer.invoke('app:save-copy', format),
+  },
   updates: {
     info: () => ipcRenderer.invoke('updates:info'),
     setToken: (token) => ipcRenderer.invoke('updates:set-token', token),

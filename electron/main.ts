@@ -25,6 +25,7 @@ import { pipeline } from 'node:stream/promises'
 import { pathToFileURL } from 'node:url'
 import type { ImportSource, MenuCommand } from '../src/platform/types'
 import { Engine } from './engine'
+import * as share from './share'
 import * as updates from './updates'
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL
@@ -260,6 +261,7 @@ function buildMenu() {
         { label: 'Export Mix…', accelerator: 'CmdOrCtrl+E', click: () => send('export') },
         sep,
         { label: 'Show Library Folder', click: () => void shell.openPath(libraryRoot()) },
+        ...(share.copyFormats().length ? [sep, { label: 'Save a Copy of KeyFinder…', click: () => send('save-copy') }] : []),
         ...(isMac ? [] : [sep, settings, sep, { role: 'quit' } as MenuItemConstructorOptions]),
       ],
     },
@@ -381,6 +383,8 @@ const SAVABLE = /^\/api\/songs\/[0-9a-f]{32}\/(export|stems\/[a-z0-9_-]+)(\?[^#]
 
 function registerIpc() {
   handle('engine:info', () => engine.info())
+  handle('app:copy-info', () => ({ formats: share.copyFormats(), blocker: share.copyBlocker(), arch: process.arch }))
+  handle('app:save-copy', (format: unknown) => share.saveCopy(win, format === 'dmg' ? 'dmg' : 'zip'))
   handle('engine:restart', () => engine.restart())
 
   handle('dialog:pick', async (source: unknown) => {

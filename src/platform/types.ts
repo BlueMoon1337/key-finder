@@ -20,6 +20,7 @@ export type MenuCommand =
   | 'loop'
   | 'metronome'
   | 'export'
+  | 'save-copy'
   | 'check-updates'
 
 export type EngineStatus = 'starting' | 'ready' | 'restarting' | 'failed'
@@ -69,6 +70,12 @@ export interface DesktopAPI {
   /** Files opened with the app (Open With, the Dock icon, the command line). */
   onOpenFiles(cb: (paths: string[]) => void): () => void
   onMenu(cb: (cmd: MenuCommand) => void): () => void
+  /** Saving a copy of the app itself (a .dmg or .zip) to give to someone or move to another computer. */
+  copy: {
+    info(): Promise<{ formats: ('dmg' | 'zip')[]; blocker: string | null; arch: string }>
+    /** A Save dialog, then the copy; resolves to the saved path, or null if cancelled. */
+    save(format: 'dmg' | 'zip'): Promise<string | null>
+  }
   updates: {
     info(): Promise<UpdateInfo>
     setToken(token: string): Promise<void>

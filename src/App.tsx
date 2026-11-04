@@ -43,6 +43,9 @@ function run(cmd: MenuCommand) {
     case 'check-updates':
       navigate('profile')
       return void checkForUpdates()
+    case 'save-copy':
+      navigate('profile')
+      return void window.setTimeout(() => document.querySelector<HTMLElement>('#save-copy')?.scrollIntoView({ behavior: 'smooth' }), 50)
   }
   if (!hasSong) return
   switch (cmd) {
