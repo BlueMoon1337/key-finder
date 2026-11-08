@@ -119,6 +119,10 @@ class JobStore:
             tempos = result.get("tempo_sections") or []
             if len(tempos) > 1:
                 out["tempos"] = [s["bpm"] for s in tempos]
+            # Every chord the song uses, at any detail level ("7:maj" is G), for the Chord Library.
+            used = {(c["root"], c["quality"]) for level in (result.get("chords") or {}).values() for c in level
+                    if c.get("root") is not None and c.get("quality")}
+            out["chords"] = [f"{r}:{q}" for r, q in sorted(used)]
         return out
 
     def delete(self, song_id: str) -> None:

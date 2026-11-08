@@ -29,6 +29,8 @@ export interface SongSummary {
   keys?: string[]
   /** Every tempo in order, when the song changes tempo. */
   tempos?: number[]
+  /** Every chord the song uses, at any detail level, as "root:quality" ("7:maj" is G). */
+  chords?: string[]
   /** Songs added before lyrics existed have none. */
   lyrics_status?: LyricsStatus
   bpm?: number

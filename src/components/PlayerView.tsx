@@ -4,6 +4,7 @@ import { STEM_KINDS, beatInBar, beatIndexAt, camelot, chordIndexAt, chordLabel, 
 import { MAX_SPEED, MIN_SPEED, playback } from '../playback'
 import { errorMessage, loadSong, navigate, refreshLibrary, toast, updateSettings, useApp } from '../store'
 import { LyricsPanel } from './Lyrics'
+import { SongChords } from './SongChords'
 import { Back5Icon, ChevronLeftIcon, Forward5Icon, LibraryIcon, PauseIcon, PlayIcon } from './Icons'
 import { useFrame } from './useFrame'
 import { usePlayback } from './usePlayback'
@@ -127,6 +128,8 @@ function Player({ song }: { song: Song }) {
       </section>
 
       <NowPlaying song={song} chords={chords} semitones={semitones} flatsAt={flatsAt} />
+
+      <SongChords chords={chords} semitones={semitones} flatsAt={flatsAt} />
 
       <LyricsPanel song={song} chords={chords} semitones={semitones} flatsAt={flatsAt} />
 

@@ -183,3 +183,13 @@ def test_a_song_that_changes_tempo(client, tmp_path):
     client.patch(f"/api/songs/{song_id}", json={"tempo": "double"})
     sections = client.get(f"/api/songs/{song_id}").json()["analysis"]["tempo_sections"]
     assert [s["bpm"] for s in sections] == [pytest.approx(180, rel=0.02), pytest.approx(240, rel=0.02)]
+
+
+def test_summaries_list_the_chords_a_song_uses(client, tmp_path):
+    from synth import SR, progression
+
+    path = tmp_path / "chords.wav"
+    audio.save(path, progression([(2, "maj"), (9, "maj"), (11, "min"), (7, "maj")], bpm=100), SR)
+    song_id = upload_named(client, path.read_bytes(), "chords.wav").json()["id"]
+    summary = next(s for s in client.get("/api/songs").json() if s["id"] == song_id)
+    assert {"2:maj", "9:maj", "11:min", "7:maj"} <= set(summary["chords"])  # D A Bm G

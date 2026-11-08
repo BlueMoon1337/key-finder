@@ -10,6 +10,7 @@ A practice app for musicians, for macOS and Windows. Add a song and KeyFinder:
 - lets you **change the key** (±12 semitones, and the chords transpose with it) and the **speed** (50–150 %, without changing the pitch)
 - has a **metronome that follows the song's own beats**, a one-bar **count-in** and **A–B loops** that snap to beats
 - **exports** your mix (the song without vocals, two semitones down at 80 %, say) as MP3, WAV or M4A
+- **charts the song's chords** on piano keyboards, and has a **Chord Library** of every chord with its notes, intervals and inversions (see [Chords](#chords))
 - **shows the lyrics with the chords over the words**, following the song as it plays (see [Lyrics](#lyrics))
 - **exports stems for [Player](https://github.com/BlueMoon1337/Player)**, the multitrack player: every stem, a click track on the song's own beats, the key and the tempo (see [Exporting for Player](#exporting-for-player))
 
@@ -32,6 +33,12 @@ You can also drop files anywhere on the window, open them with KeyFinder from Fi
 In the player, **Space** plays and pauses, **← / →** move 5 seconds, **[ / ]** change the key, **L** turns the loop on and off and **M** the metronome. **⌘↑ / ⌘↓** (Ctrl on Windows) change the speed. Drag across the waveform to loop a section.
 
 **Profile** shows library statistics, the defaults for new songs (how to split them, and the chord detail), the library folder, and updates.
+
+### Chords
+
+Under the chord timeline, **Chords** charts every chord in the song on a piano keyboard, with its notes, in the order they first come: in the key you're playing in (**Pitch**) and at the **Chords** detail you've chosen. The chord playing now is outlined. Click a chord to hear it; **▸ 0:22** goes to where it's first played, and **Library** opens it in the Chord Library. A slash chord shows its bass note in orange, under the chord. Chords heard for under two seconds in all (a passing bass note, a fill) wait behind **Show … brief chords**.
+
+The **Chords** page (in the sidebar) is a chord reference, like muted.io's: pick a root and a type to see the chord on a keyboard with its notes spelled as charts write them (E♭m7 is E♭ G♭ B♭ D♭), its formula (1 ♭3 5 ♭7) and intervals, and its inversions, and to hear it, together or as an arpeggio. It has the nine chord types KeyFinder detects and eleven more (6, m6, m7♭5, dim7, m(maj7), 7sus4, add9, m(add9), 9, maj9, m9). Chords your songs use carry an orange dot; each lists the songs it's in, and **Chords in your library** lists every chord KeyFinder has found in your songs, the most used first.
 
 ### Lyrics
 

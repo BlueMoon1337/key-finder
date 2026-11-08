@@ -115,6 +115,15 @@ export const FolderIcon = (p: P) => (
   </svg>
 )
 
+/** The Chord Library's: piano keys. */
+export const PianoIcon = (p: P) => (
+  <svg {...base(p)}>
+    <rect x="3.5" y="4" width="17" height="16" rx="2" />
+    <path d="M9.2 4v16M14.8 4v16" />
+    <path d="M7.6 4.5v7.5h3.2V4.5M13.2 4.5v7.5h3.2V4.5" fill="currentColor" />
+  </svg>
+)
+
 /** The colourful app-style tiles in the Add a Song sheet. */
 export const FilesTile = () => (
   <svg viewBox="0 0 48 48" aria-hidden>

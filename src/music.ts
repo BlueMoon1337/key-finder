@@ -58,9 +58,22 @@ export function relativeKey(tonic: number, mode: Key['mode']) {
 }
 
 /** A chord's name after transposing by `shift` semitones (G/B for an inversion); "N.C." for no chord. */
+const MINORISH = new Set(['min', 'min7', 'dim', 'dim7', 'm7b5', 'm6', 'mmaj7', 'madd9', 'm9'])
+
+/**
+ * Whether to spell a chord's root with flats. Mostly the key's choice, but not where that gives
+ * a chord nobody writes: G♭ minor (G♭ B𝄫 D♭) is F♯m, D♭ minor is C♯m; D♯ and A♯ major are E♭ and B♭.
+ */
+export function chordUsesFlats(root: number, quality: string, flats: boolean) {
+  const r = mod12(root)
+  if (flats && MINORISH.has(quality) && (r === 1 || r === 6)) return false
+  if (!flats && !MINORISH.has(quality) && (r === 3 || r === 10)) return true
+  return flats
+}
+
 export function chordLabel(chord: Pick<Chord, 'root' | 'quality' | 'bass'>, shift: number, flats: boolean) {
   if (chord.root === null || chord.quality === null) return 'N.C.'
-  const names = flats ? FLAT : SHARP
+  const names = chordUsesFlats(chord.root + shift, chord.quality, flats) ? FLAT : SHARP
   const name = names[mod12(chord.root + shift)] + (SUFFIX[chord.quality] ?? '')
   return chord.bass === null || chord.bass === undefined || mod12(chord.bass) === mod12(chord.root)
     ? name

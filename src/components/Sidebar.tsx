@@ -1,6 +1,6 @@
 import { useUpdates } from '../platform/updates'
 import { navigate, updateSettings, useApp } from '../store'
-import { LibraryIcon, PersonIcon, SidebarIcon } from './Icons'
+import { LibraryIcon, PersonIcon, PianoIcon, SidebarIcon } from './Icons'
 
 export function Sidebar() {
   const view = useApp((s) => s.view)
@@ -28,9 +28,13 @@ export function Sidebar() {
         <span>keyfinder</span>
       </a>
       <nav className="nav">
-        <button className={`nav-item ${view !== 'profile' ? 'active' : ''}`} onClick={() => navigate('library')} title="Play">
+        <button className={`nav-item ${view === 'library' || view === 'player' ? 'active' : ''}`} onClick={() => navigate('library')} title="Play">
           <LibraryIcon />
           <span>Play</span>
+        </button>
+        <button className={`nav-item ${view === 'chords' ? 'active' : ''}`} onClick={() => navigate('chords')} title="Chords">
+          <PianoIcon />
+          <span>Chords</span>
         </button>
         <button className={`nav-item ${view === 'profile' ? 'active' : ''}`} onClick={() => navigate('profile')} title="Profile">
           <PersonIcon />

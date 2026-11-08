@@ -1472,3 +1472,228 @@ button.destructive {
     font-size: 15px;
   }
 }
+
+/* ------------------------------------------------------------------ chords */
+
+.keyboard {
+  display: block;
+  max-width: 100%;
+}
+.keyboard .key.white {
+  fill: #e9e9ec;
+  stroke: #1c1c1e;
+  stroke-width: 1;
+}
+.keyboard .key.black {
+  fill: #1f1f22;
+  stroke: #0e0e10;
+  stroke-width: 1;
+}
+.keyboard .key.on {
+  fill: var(--accent);
+}
+.keyboard .key.black.on {
+  fill: #1fa9b8;
+}
+.keyboard .key.bass {
+  fill: #f59e0b;
+}
+.keyboard .key-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-anchor: middle;
+  fill: #0b2a2e;
+}
+.keyboard .key-label.small {
+  font-size: 7px;
+  fill: #04191c;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid #3a3a3e;
+  background: var(--panel-3);
+  font-weight: 600;
+}
+.chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #062226;
+}
+.chip .muted {
+  font-weight: 500;
+}
+.used-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f59e0b;
+}
+
+/* the song's chord chart */
+.song-chords h2 .muted {
+  margin-left: 8px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
+.chord-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+.chord-card {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 14px;
+  background: var(--panel-3);
+  border: 2px solid transparent;
+  transition: border-color 0.15s;
+}
+.chord-card.now {
+  border-color: var(--accent);
+}
+.chord-card-main {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+}
+.chord-card-name {
+  font-size: 22px;
+  font-weight: 700;
+}
+.chord-card.now .chord-card-name {
+  color: var(--accent);
+}
+.chord-card-notes {
+  font-size: 13px;
+  color: #c7c7cc;
+}
+.chord-card-meta {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.chord-card-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  white-space: nowrap;
+}
+.chord-more {
+  margin-top: 12px;
+}
+
+/* the Chord Library */
+.chord-roots {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.chord-roots button {
+  padding: 10px 0;
+  font-size: 17px;
+  font-weight: 700;
+  border-radius: 10px;
+}
+.chord-roots button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #062226;
+}
+.chord-group {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  margin-top: 8px;
+}
+.chord-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chord-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.panel h2.chord-symbol {
+  font-size: 44px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-transform: none;
+  color: var(--text);
+  margin: 0;
+}
+.keyboard.big {
+  margin: 18px 0 10px;
+}
+.chord-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 8px 0 4px;
+}
+.chord-facts dt {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.chord-facts dd {
+  margin: 4px 0 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+.chord-detail h3 {
+  margin: 22px 0 10px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.inversions {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 12px;
+}
+.inversion {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  padding: 10px;
+  border-radius: 14px;
+  background: var(--panel-3);
+  text-align: left;
+}
+.chord-songs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+@media (max-width: 800px) {
+  .chord-roots {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+  .chord-group {
+    grid-template-columns: 1fr;
+  }
+  .chord-facts {
+    grid-template-columns: 1fr;
+  }
+}

@@ -4,6 +4,7 @@ import { AskHost, ContextMenuHost, isAsking } from './components/Ask'
 import { Library } from './components/Library'
 import { MiniPlayer } from './components/MiniPlayer'
 import { PlayerView } from './components/PlayerView'
+import { ChordLibrary } from './components/ChordLibrary'
 import { Profile } from './components/Profile'
 import { Sidebar } from './components/Sidebar'
 import { type MenuCommand, desktop } from './platform'
@@ -93,6 +94,11 @@ export function App() {
   const toastState = useApp((s) => s.toast)
   const engine = useApp((s) => s.engine)
   const [dragging, setDragging] = useState(false)
+
+  // A new page opens at its top, not at the last page's scroll position.
+  useEffect(() => {
+    document.querySelector('.main')?.scrollTo(0, 0)
+  }, [view, songId])
 
   useEffect(() => {
     applyRoute()
@@ -201,6 +207,7 @@ export function App() {
         )}
         {view === 'library' && <Library />}
         {view === 'profile' && <Profile />}
+        {view === 'chords' && <ChordLibrary />}
         {view === 'player' && songId && <PlayerView songId={songId} />}
       </div>
       {view !== 'player' && <MiniPlayer />}
