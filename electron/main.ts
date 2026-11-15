@@ -379,7 +379,34 @@ function pickOptions(source: ImportSource): Electron.OpenDialogOptions {
 }
 
 /** `/api/songs/<id>/export?…` or `/api/songs/<id>/stems/<stem>?…`: the only things saveFromApi saves. */
-const SAVABLE = /^\/api\/songs\/[0-9a-f]{32}\/(export|stems\/[a-z0-9_-]+)(\?[^#]*)?$/
+/** What saveFromApi may save: a song's export or stem, or a transposed file. */
+const SAVABLE = /^\/api\/(songs\/[0-9a-f]{32}\/(export|stems\/[a-z0-9_-]+)|transpose\/[0-9a-f]{32}\/render)(\?[^#]*)?$/
+
+const cleanName = (name: unknown, fallback: string) =>
+  typeof name === 'string' && name.trim() ? name.replace(/[\\/:*?"<>|]+/g, ' ').slice(0, 180) : fallback
+
+/** Fetches what the engine makes at ``apiPath`` into ``filePath`` (via a .partial file). */
+async function download(apiPath: string, filePath: string) {
+  const port = await engine.ready()
+  const res = await fetch(`http://127.0.0.1:${port}${apiPath}`, { headers: { 'X-KeyFinder-Token': engine.token } })
+  if (!res.ok || !res.body) {
+    let detail = `${res.status}`
+    try {
+      detail = ((await res.json()) as { detail?: string }).detail ?? detail
+    } catch {
+      /* not JSON */
+    }
+    throw new Error(`Couldn’t export: ${detail}`)
+  }
+  const partial = `${filePath}.partial`
+  try {
+    await pipeline(Readable.fromWeb(res.body as never), fs.createWriteStream(partial))
+    await fsp.rename(partial, filePath)
+  } catch (e) {
+    await fsp.rm(partial, { force: true })
+    throw e
+  }
+}
 
 function registerIpc() {
   handle('engine:info', () => engine.info())
@@ -400,7 +427,7 @@ function registerIpc() {
 
   handle('file:save-from-api', async (apiPath: unknown, suggestedName: unknown) => {
     if (typeof apiPath !== 'string' || !SAVABLE.test(apiPath)) throw new Error('Not something that can be saved')
-    const name = typeof suggestedName === 'string' ? suggestedName.replace(/[\\/:*?"<>|]+/g, ' ').slice(0, 180) : 'KeyFinder export.mp3'
+    const name = cleanName(suggestedName, 'KeyFinder export.mp3')
     const ext = path.extname(name).slice(1).toLowerCase() || 'mp3'
     const opts: Electron.SaveDialogOptions = {
       title: 'Save',
@@ -409,27 +436,36 @@ function registerIpc() {
     }
     const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts)
     if (r.canceled || !r.filePath) return null
-    const port = await engine.ready()
-    const res = await fetch(`http://127.0.0.1:${port}${apiPath}`, { headers: { 'X-KeyFinder-Token': engine.token } })
-    if (!res.ok || !res.body) {
-      let detail = `${res.status}`
-      try {
-        detail = ((await res.json()) as { detail?: string }).detail ?? detail
-      } catch {
-        /* not JSON */
-      }
-      throw new Error(`Couldn’t export: ${detail}`)
-    }
-    const partial = `${r.filePath}.partial`
-    try {
-      await pipeline(Readable.fromWeb(res.body as never), fs.createWriteStream(partial))
-      await fsp.rename(partial, r.filePath)
-    } catch (e) {
-      await fsp.rm(partial, { force: true })
-      throw e
-    }
+    await download(apiPath, r.filePath)
     shell.showItemInFolder(r.filePath)
     return r.filePath
+  })
+
+  // Several files into one folder, chosen once: transposing a batch.
+  handle('file:save-many-from-api', async (items: unknown) => {
+    if (!Array.isArray(items) || !items.length) return null
+    const list = items.map((it) => ({ apiPath: String(it?.apiPath ?? ''), name: cleanName(it?.name, 'KeyFinder export.mp3') }))
+    if (list.some((it) => !SAVABLE.test(it.apiPath))) throw new Error('Not something that can be saved')
+    const opts: Electron.OpenDialogOptions = {
+      title: `Save ${list.length} files to…`,
+      buttonLabel: 'Save Here',
+      defaultPath: app.getPath('music'),
+      properties: ['openDirectory', 'createDirectory'],
+    }
+    const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+    if (r.canceled || !r.filePaths[0]) return null
+    const folder = r.filePaths[0]
+    let last = ''
+    for (const it of list) {
+      // Never over another file: "Song (E major) 2.mp3".
+      const ext = path.extname(it.name)
+      let target = path.join(folder, it.name)
+      for (let n = 2; fs.existsSync(target); n++) target = path.join(folder, `${path.basename(it.name, ext)} ${n}${ext}`)
+      await download(it.apiPath, target)
+      last = target
+    }
+    if (last) shell.showItemInFolder(last)
+    return folder
   })
 
   handle('library:reveal', async (songId?: unknown) => {

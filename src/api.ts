@@ -278,6 +278,44 @@ export const playerPackageName = (id: string, semitones: number, speed: number) 
     (r) => r.name,
   )
 
+// ------------------------------------------------------------------ transposing files
+
+/** A file being transposed: what KeyFinder found in it. */
+export interface TransposeItem {
+  id: string
+  name: string
+  format: string
+  title: string
+  artist: string
+  duration: number
+  key: { name: string; tonic: number; mode: 'major' | 'minor'; camelot?: string; confidence?: number }
+  /** Every key in order, when it changes key. */
+  keys: string[] | null
+  bpm: number
+  tuning_cents: number
+}
+
+export const TRANSPOSE_FORMATS = ['mp3', 'wav', 'm4a', 'flac'] as const
+export type TransposeFormat = (typeof TRANSPOSE_FORMATS)[number]
+
+export function addTransposeFile(file: File) {
+  const form = new FormData()
+  form.append('file', file)
+  return request<TransposeItem>('/api/transpose', { method: 'POST', body: form })
+}
+export const addTransposePaths = (paths: string[]) =>
+  request<{ created: TransposeItem[]; failed: { path: string; error: string }[] }>('/api/transpose/local', json('POST', { paths }))
+export const transposePath = (id: string, semitones: number, speed: number, format: TransposeFormat) =>
+  `/api/transpose/${id}/render?${new URLSearchParams({ semitones: String(semitones), speed: String(speed), format })}`
+export const deleteTranspose = (id: string) => request<null>(`/api/transpose/${id}`, { method: 'DELETE' })
+
+/** Saves several things the API makes into one folder (desktop), or downloads each (browser). */
+export async function saveManyFromApi(items: { apiPath: string; name: string }[]): Promise<string | null> {
+  if (desktop) return desktop.saveManyFromApi(items)
+  for (const it of items) await saveFromApi(it.apiPath, it.name)
+  return items.length ? 'Downloads' : null
+}
+
 /** Saves something the API makes: a Save dialog on the desktop, a download in a browser. */
 export async function saveFromApi(path: string, suggestedName: string): Promise<string | null> {
   if (desktop) return desktop.saveFromApi(path, suggestedName)

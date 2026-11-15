@@ -5,6 +5,7 @@ import { Library } from './components/Library'
 import { MiniPlayer } from './components/MiniPlayer'
 import { PlayerView } from './components/PlayerView'
 import { ChordLibrary } from './components/ChordLibrary'
+import { Transpose, addTransposeFiles } from './components/Transpose'
 import { Profile } from './components/Profile'
 import { Sidebar } from './components/Sidebar'
 import { type MenuCommand, desktop } from './platform'
@@ -170,7 +171,9 @@ export function App() {
       e.preventDefault()
       depth = 0
       setDragging(false)
-      void addFiles([...(e.dataTransfer?.files ?? [])])
+      const files = [...(e.dataTransfer?.files ?? [])]
+      // On the Transpose page, dropped files are for transposing; anywhere else they're songs.
+      void (location.hash === '#/transpose' ? addTransposeFiles(files) : addFiles(files))
     }
     window.addEventListener('dragenter', enter)
     window.addEventListener('dragover', over)
@@ -208,6 +211,7 @@ export function App() {
         {view === 'library' && <Library />}
         {view === 'profile' && <Profile />}
         {view === 'chords' && <ChordLibrary />}
+        {view === 'transpose' && <Transpose />}
         {view === 'player' && songId && <PlayerView songId={songId} />}
       </div>
       {view !== 'player' && <MiniPlayer />}

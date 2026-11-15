@@ -9,6 +9,7 @@ A practice app for musicians, for macOS and Windows. Add a song and KeyFinder:
 - **splits it into stems** with Demucs, Meta AI's neural separator: vocals, drums, bass and other; vocals and accompaniment; or six stems with guitar and piano. A mixer mutes, solos or turns down each one
 - lets you **change the key** (±12 semitones, and the chords transpose with it) and the **speed** (50–150 %, without changing the pitch)
 - has a **metronome that follows the song's own beats**, a one-bar **count-in** and **A–B loops** that snap to beats
+- **transposes audio files** to another key (and speed) without adding them to the library (see [Transposing files](#transposing-files))
 - **exports** your mix (the song without vocals, two semitones down at 80 %, say) as MP3, WAV or M4A
 - **charts the song's chords** on piano keyboards, and has a **Chord Library** of every chord with its notes, intervals and inversions (see [Chords](#chords))
 - **shows the lyrics with the chords over the words**, following the song as it plays (see [Lyrics](#lyrics))
@@ -39,6 +40,12 @@ In the player, **Space** plays and pauses, **← / →** move 5 seconds, **[ / ]
 Under the chord timeline, **Chords** charts every chord in the song on a piano keyboard, with its notes, in the order they first come: in the key you're playing in (**Pitch**) and at the **Chords** detail you've chosen. The chord playing now is outlined. Click a chord to hear it; **▸ 0:22** goes to where it's first played, and **Library** opens it in the Chord Library. A slash chord shows its bass note in orange, under the chord. Chords heard for under two seconds in all (a passing bass note, a fill) wait behind **Show … brief chords**.
 
 The **Chords** page (in the sidebar) is a chord reference, like muted.io's: pick a root and a type to see the chord on a keyboard with its notes spelled as charts write them (E♭m7 is E♭ G♭ B♭ D♭), its formula (1 ♭3 5 ♭7) and intervals, and its inversions, and to hear it, together or as an arpeggio. It has the nine chord types KeyFinder detects and eleven more (6, m6, m7♭5, dim7, m(maj7), 7sus4, add9, m(add9), 9, maj9, m9). Under **Guitar** it shows the chord's guitar shapes in standard tuning: the open shape where there is one (C = x32010), then barre shapes up the neck, each drawn with its finger numbers (the root's dots in orange), and strummed when you click it. KeyFinder works the shapes out rather than looking them up, so every chord and slash chord has them; they're kept to what a hand plays: a four-fret span, four fingers or a barre, no hand-crossing patterns. The song's **Chords** chart can draw guitar shapes too (**Piano / Guitar**). Chords your songs use carry an orange dot; each lists the songs it's in, and **Chords in your library** lists every chord KeyFinder has found in your songs, the most used first.
+
+### Transposing files
+
+**Transpose** (in the sidebar) changes the key of audio files, and their speed if you like, and saves them, without adding them to your library: for a singer's key, a guitar part without a capo, or a backing track. Add files with **Add Files…** or drop them on the page (several at once). KeyFinder finds each one's key and tempo first (the same analysis songs get, without separating stems), so you pick the new key by name ("C minor → D minor (+2)"), up to an octave either way. **Listen** renders it to hear first; **Save…** saves it as MP3, WAV, M4A or FLAC, named with its new key ("Song (D minor).mp3", "Song (D minor, 90%).mp3" at another speed); **Save All** saves every file into one folder. Video files work too: their sound is saved. Files are forgotten a day after they're added.
+
+The pitch is shifted as the player's **Pitch** is: with Rubber Band (which keeps a voice's character) when a system FFmpeg has it, otherwise FFmpeg's resampling, which moves the voice's formants with it, so a big shift of a vocal sounds less natural.
 
 ### Lyrics
 
@@ -241,4 +248,8 @@ The engine's HTTP API, used by the interface:
 | `POST` | `/api/songs/{id}/lyrics` | find the lyrics again (`{"mode": "auto"}` or `"online"`) |
 | `PUT` | `/api/songs/{id}/lyrics` | correct the lyrics (`{"lines": ["…", "…"]}`, one string per line; `""` removes it) |
 | `POST` | `/api/lyrics/download` | download the Whisper model ahead of time |
+| `POST` | `/api/transpose` | add a file to transpose (`file`); returns its key, keys and tempo |
+| `POST` | `/api/transpose/local` | desktop only: add files to transpose by path (`{"paths": […]}`) |
+| `GET` | `/api/transpose/{id}/render?semitones=&speed=&format=` | the file in its new key and speed (`mp3`, `wav`, `m4a` or `flac`) |
+| `DELETE` | `/api/transpose/{id}` | forget a file |
 | `GET` | `/api/songs/{id}/export/player-name?semitones=&speed=` | the package's file name |

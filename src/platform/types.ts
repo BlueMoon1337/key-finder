@@ -65,6 +65,8 @@ export interface DesktopAPI {
    * Resolves to the saved path, or null if cancelled.
    */
   saveFromApi(apiPath: string, suggestedName: string): Promise<string | null>
+  /** A folder dialog, then saves each item there (never over another file). Resolves to the folder, or null. */
+  saveManyFromApi(items: { apiPath: string; name: string }[]): Promise<string | null>
   /** Shows the library folder (or one song's folder) in Finder / Explorer. */
   reveal(songId?: string): Promise<void>
   /** Files opened with the app (Open With, the Dock icon, the command line). */

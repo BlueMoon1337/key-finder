@@ -124,6 +124,16 @@ export const PianoIcon = (p: P) => (
   </svg>
 )
 
+/** Transpose's: a note with arrows up and down. */
+export const TransposeIcon = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M10 17V5l7-1.5v12" />
+    <circle cx="7.5" cy="17" r="2.5" />
+    <circle cx="14.5" cy="15.5" r="2.5" />
+    <path d="M4 7l2-2.5L8 7M4 10.5L6 13l2-2.5" />
+  </svg>
+)
+
 /** The colourful app-style tiles in the Add a Song sheet. */
 export const FilesTile = () => (
   <svg viewBox="0 0 48 48" aria-hidden>

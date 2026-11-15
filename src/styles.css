@@ -1771,3 +1771,68 @@ button.destructive {
 .chord-card .chord-diagram {
   margin: 0 auto;
 }
+
+/* ------------------------------------------------------------------ transpose */
+
+.transpose-controls {
+  align-items: center;
+  gap: 18px;
+  margin-top: 6px;
+}
+.transpose-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.transpose-list {
+  display: grid;
+  gap: 4px;
+}
+.transpose-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.4fr) auto 32px;
+  gap: 14px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.transpose-row:last-of-type {
+  border-bottom: none;
+}
+.transpose-file {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.transpose-file b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transpose-key {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.transpose-actions {
+  gap: 8px;
+  justify-content: flex-end;
+}
+.transpose-remove {
+  font-size: 20px;
+}
+.transpose-preview {
+  width: 100%;
+  margin-top: 10px;
+}
+@media (max-width: 800px) {
+  .transpose-row {
+    grid-template-columns: minmax(0, 1fr) 32px;
+  }
+  .transpose-key,
+  .transpose-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}

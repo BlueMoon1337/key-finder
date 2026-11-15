@@ -20,6 +20,7 @@ const api: DesktopAPI = {
   pickFiles: (source) => ipcRenderer.invoke('dialog:pick', source),
   pathForFile: (file) => webUtils.getPathForFile(file),
   saveFromApi: (apiPath, suggestedName) => ipcRenderer.invoke('file:save-from-api', apiPath, suggestedName),
+  saveManyFromApi: (items) => ipcRenderer.invoke('file:save-many-from-api', items),
   reveal: (songId) => ipcRenderer.invoke('library:reveal', songId),
   onOpenFiles: (cb) => listen<string[]>('open-files', cb),
   onMenu: (cb) => listen<MenuCommand>('menu', cb),

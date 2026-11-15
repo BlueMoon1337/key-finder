@@ -21,7 +21,7 @@ import {
 import { type EngineInfo, desktop } from './platform'
 import { playback } from './playback'
 
-export type View = 'library' | 'profile' | 'player' | 'chords'
+export type View = 'library' | 'profile' | 'player' | 'chords' | 'transpose'
 export type SortKey = 'added' | 'title' | 'artist' | 'bpm' | 'key'
 export type Filter = 'all' | 'ready' | 'processing' | 'major' | 'minor'
 
@@ -141,7 +141,11 @@ export const errorMessage = (e: unknown) => String((e as Error)?.message ?? e)
 
 export function navigate(view: View, songId?: string) {
   const hash =
-    view === 'player' && songId ? `#/song/${songId}` : view === 'profile' ? '#/profile' : view === 'chords' ? '#/chords' : '#/'
+    view === 'player' && songId
+      ? `#/song/${songId}`
+      : view === 'profile' || view === 'chords' || view === 'transpose'
+        ? `#/${view}`
+        : '#/'
   if (location.hash !== hash) location.hash = hash
   else applyRoute()
 }
@@ -156,7 +160,7 @@ export function applyRoute() {
   const chord = location.hash.match(/^#\/chords(?:\/(\d{1,2})\/([\w-]+))?$/)
   if (m) setState({ view: 'player', songId: m[1] })
   else if (chord) setState({ view: 'chords', chord: chord[1] ? { root: Number(chord[1]) % 12, type: chord[2] } : state.chord })
-  else setState({ view: location.hash === '#/profile' ? 'profile' : 'library' })
+  else setState({ view: location.hash === '#/profile' ? 'profile' : location.hash === '#/transpose' ? 'transpose' : 'library' })
 }
 
 // ------------------------------------------------------------------ library

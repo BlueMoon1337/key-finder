@@ -25,8 +25,10 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from . import __version__, lyrics, neural, player_export, remote, separation, stems, tempo, transform
+from . import __version__, audio, key, lyrics, neural, player_export, remote, separation, stems, tempo, transform
 from .jobs import ORIGINAL, JobStore, SongNotFound, stem_labels
+from .transposer import FORMATS as TRANSPOSE_FORMATS
+from .transposer import NotFound, Transposer
 
 MAX_UPLOAD_BYTES = int(os.environ.get("KEYFINDER_MAX_UPLOAD_MB", "500")) * 1024 * 1024
 # Zips of stems (MultiTracks downloads run to a few GB) imported from disk in the desktop app.
@@ -55,6 +57,7 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
     neural.configure(models)
     lyrics.configure(models)
     store = JobStore(data_dir, inline=inline)
+    transposer = Transposer(data_dir)
     render_locks: defaultdict[Path, threading.Lock] = defaultdict(threading.Lock)
 
     @asynccontextmanager
@@ -228,6 +231,85 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
             # Tempo changes and bar lengths, from the beats as they are now (after a tempo fix too).
             a["beat_map"] = tempo.beat_map(a["beats"], a.get("downbeats") or [], a.get("beats_per_bar", 4))
         return song
+
+    # ------------------------------------------------------------------ transposing files
+
+    def save_upload(file: UploadFile, prefix: str) -> Path:
+        fd, tmp_name = tempfile.mkstemp(dir=data_dir, prefix=prefix)
+        tmp = Path(tmp_name)
+        size = 0
+        with os.fdopen(fd, "wb") as out:
+            while chunk := file.file.read(1 << 20):
+                size += len(chunk)
+                if size > MAX_UPLOAD_BYTES:
+                    tmp.unlink(missing_ok=True)
+                    raise HTTPException(413, f"file is larger than {MAX_UPLOAD_BYTES // (1024 * 1024)} MB")
+                out.write(chunk)
+        if size == 0:
+            tmp.unlink(missing_ok=True)
+            raise HTTPException(400, "empty file")
+        return tmp
+
+    @app.post("/api/transpose", status_code=201)
+    def transpose_upload(file: UploadFile = File(...)):
+        """Add a file to transpose: KeyFinder finds its key and tempo (no stems, not in the library)."""
+        tmp = save_upload(file, "transpose-")
+        try:
+            return transposer.add(file.filename or "Untitled", tmp)
+        except (audio.AudioError, ValueError) as exc:
+            raise HTTPException(400, f"couldn't read {file.filename}: {exc}") from exc
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    if token:
+        @app.post("/api/transpose/local", status_code=201)
+        def transpose_local(paths: list[str] = Body(..., embed=True)):
+            """Desktop only: add files to transpose by path."""
+            created, failed = [], []
+            for raw in paths[:50]:
+                source = Path(raw)
+                try:
+                    if not source.is_absolute() or not source.is_file():
+                        raise ValueError("not a file")
+                    if source.stat().st_size > MAX_UPLOAD_BYTES:
+                        raise ValueError(f"larger than {MAX_UPLOAD_BYTES // (1024 * 1024)} MB")
+                    fd, tmp_name = tempfile.mkstemp(dir=data_dir, prefix="transpose-")
+                    os.close(fd)
+                    tmp = Path(tmp_name)
+                    try:
+                        shutil.copyfile(source, tmp)
+                        created.append(transposer.add(source.name, tmp))
+                    finally:
+                        tmp.unlink(missing_ok=True)
+                except (OSError, ValueError, audio.AudioError) as exc:
+                    failed.append({"path": raw, "error": str(exc)})
+            return {"created": created, "failed": failed}
+
+    @app.get("/api/transpose/{item_id}/render")
+    def transpose_render(item_id: str, semitones: int = Query(0, ge=-12, le=12),
+                         speed: float = Query(1.0, ge=transform.MIN_SPEED, le=transform.MAX_SPEED),
+                         format: str = Query("mp3", pattern="^(" + "|".join(TRANSPOSE_FORMATS) + ")$")):
+        """The file in its new key (and speed), as ``format``."""
+        try:
+            info = transposer.get(item_id)
+            dest = transposer.render(item_id, semitones, speed, format)
+        except NotFound as exc:
+            raise HTTPException(404, "not found") from exc
+        except (ValueError, audio.AudioError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        k = info["key"]
+        parts = [key.key_name((k["tonic"] + semitones) % 12, k["mode"]).replace("#", "♯")]
+        if speed != 1.0:
+            parts.append(f"{round(speed * 100)}%")
+        name = f"{info['name']} ({', '.join(parts)}).{format}"
+        return FileResponse(dest, filename=name, background=BackgroundTask(dest.unlink, missing_ok=True))
+
+    @app.delete("/api/transpose/{item_id}", status_code=204)
+    def transpose_delete(item_id: str):
+        try:
+            transposer.delete(item_id)
+        except NotFound as exc:
+            raise HTTPException(404, "not found") from exc
 
     @app.post("/api/songs/{song_id}/lyrics", status_code=202)
     def find_lyrics(song_id: str, mode: str | None = Body(None, embed=True, pattern="^(auto|online)$")):
