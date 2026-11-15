@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react'
 import type { Chord } from '../api'
-import { fromDetected, playChord, slashVoicing, spell, voicing } from '../chords'
+import { fromDetected, playChord, playMidi, slashVoicing, spell, voicing } from '../chords'
+import { findVoicings } from '../guitar'
 import { chordIndexAt, chordLabel, formatTime } from '../music'
 import { playback } from '../playback'
-import { openChord } from '../store'
+import { openChord, updateSettings, useApp } from '../store'
+import { ChordDiagram } from './ChordDiagram'
 import { Keyboard } from './Keyboard'
 import { useFrame } from './useFrame'
 
@@ -42,6 +44,23 @@ export function SongChords({ chords, semitones, flatsAt }: {
   }, [chords, semitones, flatsAt])
   const [now, setNow] = useState<string | null>(null)
   const [all, setAll] = useState(false)
+  const view = useApp((s) => s.settings.chordView)
+  // Each chord as drawn: its keys on a keyboard, and its best guitar shape.
+  const drawn = useMemo(
+    () =>
+      new Map(
+        entries.map((e) => {
+          const c = fromDetected(e.chord, semitones, flatsAt(e.first))
+          if (!c) return [e.label, null] as const
+          const v = c.bassPc !== undefined ? slashVoicing(c.rootPc, c.type, c.bassPc) : null
+          const lit = v ? v.chord : voicing(c.rootPc, c.type)
+          const octaves = v ? v.octaves : Math.ceil((Math.max(...lit) + 1) / 12)
+          const shape = findVoicings(c.rootPc, c.type, c.bassPc, 1)[0] ?? null
+          return [e.label, { c, lit, bass: v?.bass, octaves, shape, notes: spell(c.root, c.type) }] as const
+        }),
+      ),
+    [entries, semitones, flatsAt],
+  )
   // Chords heard for under BRIEF seconds in all (a passing bass note, a fill) wait behind a button.
   const main = entries.filter((e) => e.seconds >= BRIEF)
   const shown = all || main.length < 4 ? entries : main
@@ -56,22 +75,37 @@ export function SongChords({ chords, semitones, flatsAt }: {
   if (!entries.length) return null
   return (
     <section className="panel song-chords">
-      <h2>
-        Chords <span className="muted">{entries.length} in this song · click one to hear it</span>
-      </h2>
+      <div className="song-chords-head">
+        <h2>
+          Chords <span className="muted">{entries.length} in this song · click one to hear it</span>
+        </h2>
+        <div className="segmented small" role="radiogroup" aria-label="Draw chords for">
+          {(['piano', 'guitar'] as const).map((v) => (
+            <button key={v} role="radio" aria-checked={view === v} className={view === v ? 'active' : ''} onClick={() => updateSettings({ chordView: v })}>
+              {v === 'piano' ? 'Piano' : 'Guitar'}
+            </button>
+          ))}
+        </div>
+      </div>
       <div className="chord-grid">
         {shown.map((e) => {
-          const c = fromDetected(e.chord, semitones, flatsAt(e.first))
-          if (!c) return null
-          const notes = spell(c.root, c.type)
-          const v = c.bassPc !== undefined ? slashVoicing(c.rootPc, c.type, c.bassPc) : null
-          const lit = v ? v.chord : voicing(c.rootPc, c.type)
-          const octaves = v ? v.octaves : Math.ceil((Math.max(...lit) + 1) / 12)
+          const d = drawn.get(e.label)
+          if (!d) return null
+          const { c, lit, bass, octaves, shape, notes } = d
+          const guitar = view === 'guitar' && shape
           return (
             <div key={e.label} className={`chord-card ${e.label === now ? 'now' : ''}`}>
-              <button className="chord-card-main" title={`Play ${e.label}`} onClick={() => playChord(lit, { bass: v?.bass })}>
+              <button
+                className="chord-card-main"
+                title={`Play ${e.label}`}
+                onClick={() => (guitar ? playMidi(shape.midi) : playChord(lit, { bass }))}
+              >
                 <span className="chord-card-name">{e.label}</span>
-                <Keyboard lit={lit} bass={v?.bass} octaves={Math.max(2, octaves)} height={46} />
+                {guitar ? (
+                  <ChordDiagram voicing={shape} rootPc={c.rootPc} height={110} />
+                ) : (
+                  <Keyboard lit={lit} bass={bass} octaves={Math.max(2, octaves)} height={46} />
+                )}
                 <span className="chord-card-notes">
                   {notes.join(' ')}
                   {c.bass ? ` / ${c.bass}` : ''}

@@ -1697,3 +1697,77 @@ button.destructive {
     grid-template-columns: 1fr;
   }
 }
+
+/* guitar chord diagrams */
+.chord-diagram {
+  display: block;
+}
+.chord-diagram .string,
+.chord-diagram .fret {
+  stroke: #8e8e93;
+  stroke-width: 1;
+}
+.chord-diagram .nut {
+  fill: #e9e9ec;
+}
+.chord-diagram .fret-number {
+  fill: #c7c7cc;
+  font-size: 10px;
+  font-weight: 700;
+  text-anchor: end;
+}
+.chord-diagram .mark {
+  fill: #c7c7cc;
+  font-size: 13px;
+  text-anchor: middle;
+}
+.chord-diagram .open {
+  fill: none;
+  stroke: #c7c7cc;
+  stroke-width: 1.4;
+}
+.chord-diagram .dot,
+.chord-diagram .barre {
+  fill: var(--accent);
+}
+.chord-diagram .dot.root {
+  fill: #f59e0b;
+}
+.chord-diagram .finger {
+  fill: #062226;
+  font-size: 9px;
+  font-weight: 800;
+  text-anchor: middle;
+}
+.guitar-shapes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.guitar-shape {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--panel-3);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.song-chords-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.song-chords-head h2 {
+  margin: 0;
+}
+.segmented.small button {
+  padding: 4px 12px;
+  font-size: 13px;
+}
+.chord-card .chord-diagram {
+  margin: 0 auto;
+}

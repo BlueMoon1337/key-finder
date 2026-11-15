@@ -136,9 +136,10 @@ let ctx: AudioContext | null = null
 
 /**
  * Plays notes (semitones above middle C's octave start) with a soft, piano-like tone: all together,
- * or one after another (``arpeggio``). A bass note, if given, sounds an octave below.
+ * one after another (``arpeggio``), or quickly from the lowest up, as a guitar's strum. A bass
+ * note, if given, sounds an octave below.
  */
-export function playChord(notes: number[], { arpeggio = false, bass }: { arpeggio?: boolean; bass?: number } = {}) {
+export function playChord(notes: number[], { arpeggio = false, strum = false, bass }: { arpeggio?: boolean; strum?: boolean; bass?: number } = {}) {
   ctx ??= new AudioContext()
   void ctx.resume()
   const now = ctx.currentTime + 0.02
@@ -147,7 +148,7 @@ export function playChord(notes: number[], { arpeggio = false, bass }: { arpeggi
   out.connect(ctx.destination)
   const all = bass === undefined ? notes.map((n) => n + 48) : [bass + 36, ...notes.map((n) => n + 48)]
   all.forEach((midi, i) => {
-    const start = now + (arpeggio ? i * 0.18 : i * 0.012)
+    const start = now + i * (arpeggio ? 0.18 : strum ? 0.035 : 0.012)
     const f = 440 * 2 ** ((midi + 12 - 69) / 12) // the keyboard's first C is C4
     const env = ctx!.createGain()
     env.gain.setValueAtTime(0, start)
@@ -167,3 +168,6 @@ export function playChord(notes: number[], { arpeggio = false, bass }: { arpeggi
     }
   })
 }
+
+/** Plays MIDI notes (a guitar shape's), strummed. */
+export const playMidi = (midi: number[]) => playChord(midi.map((m) => m - 60), { strum: true })

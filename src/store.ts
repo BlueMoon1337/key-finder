@@ -32,6 +32,8 @@ export interface Settings {
   sort: SortKey
   sortDesc: boolean
   sidebar: boolean
+  /** How the song's chord chart draws chords. */
+  chordView: 'piano' | 'guitar'
   /** Lyrics for new songs: LRCLIB, else transcribed ('auto'); LRCLIB only; or none. */
   lyrics: LyricsMode
 }
@@ -68,6 +70,7 @@ const DEFAULT_SETTINGS: Settings = {
   sortDesc: true,
   sidebar: true,
   lyrics: 'auto',
+  chordView: 'piano',
 }
 
 function loadSettings(): Settings {

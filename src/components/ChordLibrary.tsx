@@ -1,7 +1,9 @@
 import { useMemo } from 'react'
 import type { SongSummary } from '../api'
-import { CHORD_GROUPS, CHORD_TYPES, ROOTS, chordSymbol, inversionCount, playChord, spell, typeById, voicing } from '../chords'
+import { CHORD_GROUPS, CHORD_TYPES, ROOTS, chordSymbol, inversionCount, playChord, playMidi, spell, typeById, voicing } from '../chords'
 import { navigate, openChord, useApp } from '../store'
+import { findVoicings, fretString } from '../guitar'
+import { ChordDiagram } from './ChordDiagram'
 import { Keyboard } from './Keyboard'
 
 const INTERVAL_NAMES: Record<string, string> = {
@@ -34,6 +36,7 @@ export function ChordLibrary() {
   const notes = spell(root, type)
   const keys = voicing(pick.root, type)
   const octaves = Math.ceil((Math.max(...keys) + 1) / 12)
+  const shapes = useMemo(() => findVoicings(pick.root, type), [pick.root, type])
 
   // Which songs use each chord ("7:maj"), from the library.
   const usage = useMemo(() => {
@@ -109,6 +112,20 @@ export function ChordLibrary() {
             <dd>{type.degrees.map((d) => INTERVAL_NAMES[d] ?? d).join(', ')}</dd>
           </div>
         </dl>
+
+        <h3>Guitar</h3>
+        {shapes.length ? (
+          <div className="guitar-shapes">
+            {shapes.map((v) => (
+              <button key={v.frets.join()} className="guitar-shape" onClick={() => playMidi(v.midi)} title="Play">
+                <ChordDiagram voicing={v} rootPc={pick.root} height={150} />
+                <span className="muted">{fretString(v.frets)}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="hint">No comfortable shape in standard tuning within four frets.</p>
+        )}
 
         <h3>Inversions</h3>
         <div className="inversions">
