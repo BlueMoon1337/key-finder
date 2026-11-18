@@ -1943,3 +1943,46 @@ button.destructive {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
+.key-detail-keys {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.key-detail-caption {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.key-detail-caption b {
+  font-size: 24px;
+}
+.key-detail-chord .pill-btn.showing {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.chord-peek {
+  position: fixed;
+  z-index: 50;
+  width: 228px;
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.5);
+  pointer-events: none;
+}
+.chord-peek-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.chord-peek-head b {
+  font-size: 18px;
+}
+.chord-peek .muted {
+  font-size: 13px;
+}
