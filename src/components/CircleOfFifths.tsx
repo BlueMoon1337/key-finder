@@ -159,6 +159,8 @@ export function CircleOfFifths({ picked, onPick }: {
     role: 'button',
     tabIndex: 0,
     'aria-label': label,
+    // A click picks the key without focusing it (focus is for the keyboard), so no focus box shows.
+    onMouseDown: (e: React.MouseEvent) => e.preventDefault(),
     onClick: (e: React.MouseEvent) => {
       e.stopPropagation()
       pick(key)
@@ -263,6 +265,15 @@ export function CircleOfFifths({ picked, onPick }: {
           </g>
         )
       })}
+      {/* the open key's outline, over every wedge so none of its edges is hidden */}
+      {(() => {
+        const i = CIRCLE.findIndex((spot) =>
+          pcOf(picked.mode === 'major' ? spot.keys[0].tonic : relativeMinor(spot.keys[0].tonic)) === pickedPc,
+        )
+        if (i < 0) return null
+        const [r0, r1] = picked.mode === 'major' ? [R_HOLE, R_MAJOR] : [R_MAJOR, R_MINOR]
+        return <path d={segment(i, r0, r1)} className="cof-outline" pointerEvents="none" />
+      })()}
       {/* the middle: the hovered (or open) key's sharps or flats */}
       <g className={`cof-readout ${hovered ? 'hovering' : ''}`} aria-live="polite">
         <text y={-46} className="cof-readout-name">

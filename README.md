@@ -234,6 +234,20 @@ It needs the repository secret **`UPDATE_SIGNING_KEY`** (**Settings ▸ Secrets 
 
 In the app, **Profile ▸ Updates** asks once for a fine-grained GitHub token with **Contents: Read-only** on this repository, since it's private. KeyFinder then checks for new releases at start-up and every six hours, and **Install and Restart** downloads the update, checks its signature, replaces the app and opens it again.
 
+### Update packages and going back
+
+When the Update button can't be used (no token, no network, or the Release workflow couldn't run), KeyFinder can be updated from a zip: **Profile ▸ Updates ▸ Install from Zip…**. It takes:
+
+- an **update package**, made with `npm run update-package` (→ `release/KeyFinder-<version>-update.zip`; releases attach one too). It carries the interface (`app.asar`) and `keyfinder-update.json` with its version and checksum, so one package fits every Mac and Windows: the analysis engine already installed is kept. Use it when the engine hasn't changed since the installed version. With `UPDATE_SIGNING_KEY` set the package is signed, and KeyFinder shows it as signed; otherwise it warns that it isn't.
+- a release's **app zip** (`KeyFinder-<version>-arm64-mac.zip` / `-x64-mac.zip`): the whole app, engine included. It must be built for the Mac's processor.
+- on Windows, a zip containing the release's **installer**.
+
+KeyFinder checks the zip before installing anything: it must be KeyFinder, at a version it can read, for this computer, and match its checksum and (when it has one) its signature. Anything else is refused with **Zip File Invalid** and the reason. A package that isn't signed, or that's older than or the same as the version you have, is installed only with **Install Anyway**.
+
+Every update (from a package or from the Update button) first keeps the version it replaces in KeyFinder's settings folder (`versions/`). **Go Back to …** in **Profile ▸ Updates** puts it back, and keeps the version you went back from, so you can switch again. Updates and going back change only the app: the library (`Documents/KeyFinder Library`) and the settings stay as they are. The swap happens after KeyFinder quits, in a small script that keeps what's there until the new version is in place, then opens KeyFinder again and reports how it went.
+
+KeyFinder before 1.3.2 has no Install from Zip. Every package also carries `install-on-mac.sh`, which installs it on a Mac by hand (`bash ~/Downloads/KeyFinder-<version>-update/install-on-mac.sh`) and keeps the replaced version for Go Back the same way.
+
 ## API
 
 The engine's HTTP API, used by the interface:

@@ -26,6 +26,7 @@ import { pathToFileURL } from 'node:url'
 import type { ImportSource, MenuCommand } from '../src/platform/types'
 import { Engine } from './engine'
 import * as share from './share'
+import * as packages from './packages'
 import * as updates from './updates'
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL
@@ -474,10 +475,27 @@ function registerIpc() {
     await shell.openPath(path.join(libraryRoot(), 'songs', songId))
   })
 
-  handle('updates:info', () => ({ version: app.getVersion(), hasToken: updates.hasToken(), blocker: updates.blocker() }))
+  handle('updates:info', () => ({ version: app.getVersion(), hasToken: updates.hasToken(), blocker: updates.blocker(), packageBlocker: packages.blocker() }))
   handle('updates:set-token', (token: unknown) => updates.setToken(token))
   handle('updates:check', () => updates.check())
   handle('updates:install', () => updates.install(win, () => engine.stop()))
+  // Update packages (zips) and the version kept from before the last update.
+  handle('updates:pick-package', async () => {
+    const opts: Electron.OpenDialogOptions = {
+      title: 'Install an Update Package',
+      buttonLabel: 'Open',
+      properties: ['openFile'],
+      filters: [{ name: 'KeyFinder update package', extensions: ['zip'] }],
+    }
+    const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+    if (r.canceled || !r.filePaths[0]) return null
+    return packages.inspect(r.filePaths[0])
+  })
+  handle('updates:discard-package', () => packages.discard())
+  handle('updates:install-package', () => packages.install(() => engine.stop()))
+  handle('updates:previous', () => packages.previous())
+  handle('updates:revert', () => packages.revert(() => engine.stop()))
+  handle('updates:take-result', () => packages.takeResult())
 }
 
 // ------------------------------------------------------------ opened files

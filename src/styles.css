@@ -2052,14 +2052,21 @@ button.destructive:hover:not(:disabled) {
 .cof-spot.hover .cof-wedge {
   filter: brightness(1.08);
 }
-.cof-wedge.on {
+.cof-outline {
+  fill: none;
   stroke: var(--text);
   stroke-width: 4;
+  stroke-linejoin: round;
+}
+/* No focus box round a key, from a click or the keyboard: the white outline marks the open key,
+   and an accent stroke the one the keyboard is on. */
+.circle-of-fifths :focus,
+.circle-of-fifths :focus-visible {
+  outline: none;
 }
 .cof-wedge:focus-visible,
-.cof-staff:focus-visible,
+.cof-staff:focus-visible .cof-staff-card,
 .cof-name tspan:focus-visible {
-  outline: none;
   stroke: var(--accent);
   stroke-width: 3;
 }
@@ -2143,4 +2150,54 @@ button.destructive:hover:not(:disabled) {
   stroke: var(--text);
   fill: none;
   stroke-linecap: round;
+}
+
+/* updates from packages */
+.update-packages {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+.update-packages h3 {
+  margin: 4px 0 0;
+  font-size: 15px;
+}
+.update-packages .hint {
+  margin: 0;
+}
+.update-package {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--panel-2);
+}
+.update-package .ok {
+  color: #4cd98a;
+}
+.update-package .warn {
+  color: var(--solo);
+}
+.update-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.update-result.error {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+}
+.zip-invalid {
+  display: grid;
+  gap: 2px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+.zip-invalid b {
+  font-size: 15px;
 }

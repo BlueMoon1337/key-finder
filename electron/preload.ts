@@ -34,6 +34,12 @@ const api: DesktopAPI = {
     check: () => ipcRenderer.invoke('updates:check'),
     install: () => ipcRenderer.invoke('updates:install'),
     onProgress: (cb) => listen('updates:progress', cb),
+    pickPackage: () => ipcRenderer.invoke('updates:pick-package'),
+    discardPackage: () => ipcRenderer.invoke('updates:discard-package'),
+    installPackage: () => ipcRenderer.invoke('updates:install-package'),
+    previous: () => ipcRenderer.invoke('updates:previous'),
+    revert: () => ipcRenderer.invoke('updates:revert'),
+    takeResult: () => ipcRenderer.invoke('updates:take-result'),
   },
 }
 

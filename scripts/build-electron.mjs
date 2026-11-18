@@ -6,7 +6,7 @@ const common = {
   platform: 'node',
   format: 'cjs',
   target: 'node20',
-  external: ['electron'],
+  external: ['electron', 'original-fs'],
   sourcemap: true,
   logLevel: 'warning',
   loader: { '.pem': 'text' },

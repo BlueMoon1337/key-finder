@@ -1,7 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import { type Backend, type ChordLevel, type LyricsMode, type SeparationMode, downloadDemucs, downloadLyricsModel } from '../api'
 import { desktop, isMac } from '../platform'
-import { REPOSITORY_NAME, checkForUpdates, installUpdate, progressText, saveToken, useUpdates } from '../platform/updates'
+import {
+  REPOSITORY_NAME,
+  checkForUpdates,
+  discardPackage,
+  dismissResult,
+  installPackage,
+  installUpdate,
+  pickPackage,
+  progressText,
+  revertUpdate,
+  saveToken,
+  useUpdates,
+} from '../platform/updates'
+import { confirmDialog } from './Ask'
 import { errorMessage, loadCapabilities, toast, updateSettings, useApp } from '../store'
 import { FolderIcon } from './Icons'
 
@@ -372,6 +385,143 @@ function UpdatesSection() {
       )}
       {u.found?.notes && u.status === 'available' && <pre className="log">{u.found.notes}</pre>}
       {error && <p className="error">{error}</p>}
+      <PackageUpdates />
     </section>
+  )
+}
+
+const KIND_TEXT = {
+  interface: 'a new interface; the analysis engine you have is kept',
+  app: 'the whole app',
+  installer: 'the Windows installer',
+}
+
+/**
+ * Updating from a zip package (when GitHub can't be reached, say), and going back to the version
+ * kept from before the last update. Neither touches the library or settings.
+ */
+function PackageUpdates() {
+  const u = useUpdates()
+  const [invalid, setInvalid] = useState<string | null>(null)
+  const [failed, setFailed] = useState<string | null>(null)
+  const [opening, setOpening] = useState(false)
+  const p = u.pkg
+  const blocked = !!u.packageBlocker
+
+  const open = async () => {
+    setInvalid(null)
+    setFailed(null)
+    setOpening(true)
+    try {
+      await pickPackage()
+    } catch (e) {
+      setInvalid(errorMessage(e))
+    } finally {
+      setOpening(false)
+    }
+  }
+  const install = async () => {
+    setFailed(null)
+    try {
+      await installPackage()
+    } catch (e) {
+      setFailed(errorMessage(e))
+    }
+  }
+  const goBack = async () => {
+    if (!u.previous) return
+    const ok = await confirmDialog({
+      title: `Go back to KeyFinder ${u.previous.version}?`,
+      message: `KeyFinder restarts as ${u.previous.version}. ${u.version ?? 'This version'} is kept, so you can come back to it here. Your library and settings stay as they are.`,
+      confirmLabel: 'Go Back and Restart',
+    })
+    if (!ok) return
+    setFailed(null)
+    try {
+      await revertUpdate()
+    } catch (e) {
+      setFailed(errorMessage(e))
+    }
+  }
+
+  return (
+    <div className="update-packages">
+      {u.result && (
+        <div className={`update-result ${u.result.ok ? '' : 'error'}`} role="status">
+          <span>
+            {u.result.ok
+              ? u.result.action === 'revert'
+                ? `Went back to KeyFinder ${u.result.version}.`
+                : `Updated to KeyFinder ${u.result.version}.`
+              : `${u.result.action === 'revert' ? 'Going back' : 'The update'} didn’t work: ${u.result.message}`}
+          </span>
+          <button className="text-btn small" onClick={dismissResult}>
+            OK
+          </button>
+        </div>
+      )}
+
+      <h3>From a Package</h3>
+      <p className="hint">
+        Install an update from a .zip package: an interface update (made with <code>npm run update-package</code>) or a release’s app zip. The
+        version you have now is kept, so you can go back to it. Your library and settings aren’t touched.
+      </p>
+      {u.packageBlocker === 'translocated' && <p className="error">Move KeyFinder to Applications first (see above).</p>}
+      {!p ? (
+        <div className="row wrap">
+          <button className="pill-btn" onClick={() => void open()} disabled={blocked || opening || !!u.restarting}>
+            {opening ? 'Checking…' : 'Install from Zip…'}
+          </button>
+          {u.packageBlocker === 'development' && <span className="hint">Packages install only in the packaged app.</span>}
+        </div>
+      ) : (
+        <div className="update-package">
+          <div>
+            <b>KeyFinder {p.version}</b> <span className="muted">· {KIND_TEXT[p.kind]}</span>
+          </div>
+          <div className="muted">{p.file}</div>
+          <div className={p.signed ? 'ok' : 'warn'}>
+            {p.signed
+              ? '✓ Signed with KeyFinder’s release key.'
+              : 'Not signed with KeyFinder’s release key: install it only if you know where it came from.'}
+          </div>
+          {p.compared !== 'newer' && (
+            <div className="warn">
+              {p.compared === 'same' ? `You already have ${p.current}; this installs it again.` : `This is older than ${p.current}, the version you have.`}
+            </div>
+          )}
+          {p.notes && <pre className="log">{p.notes}</pre>}
+          <div className="row wrap">
+            <button className="pill-btn accent" onClick={() => void install()} disabled={!!u.restarting}>
+              {u.restarting === 'package' ? 'Restarting…' : p.signed && p.compared === 'newer' ? 'Install and Restart' : 'Install Anyway and Restart'}
+            </button>
+            <button className="pill-btn" onClick={() => void discardPackage()} disabled={!!u.restarting}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {invalid && (
+        <div className="error zip-invalid" role="alert">
+          <b>Zip File Invalid</b>
+          <span>{invalid}</span>
+        </div>
+      )}
+
+      <h3>Previous Version</h3>
+      {u.previous ? (
+        <div className="row wrap">
+          <span className="hint">
+            KeyFinder <b>{u.previous.version}</b> is kept from before the last update ({new Date(u.previous.savedAt).toLocaleDateString()}).
+          </span>
+          <button className="pill-btn" onClick={() => void goBack()} disabled={!!u.restarting || !!u.packageBlocker}>
+            {u.restarting === 'revert' ? 'Restarting…' : `Go Back to ${u.previous.version}`}
+          </button>
+        </div>
+      ) : (
+        <p className="hint">None kept yet: the next update keeps the version it replaces, so you can go back to it here.</p>
+      )}
+      {failed && <p className="error">{failed}</p>}
+    </div>
   )
 }

@@ -45,6 +45,35 @@ export interface UpdateInfo {
   hasToken: boolean
   /** Why updates can't install here: 'translocated' | 'development'. */
   blocker: string | null
+  /** Why update packages can't install here (as blocker; a packaged Linux build can take them). */
+  packageBlocker: string | null
+}
+
+/** A zip update package, looked at but not yet installed (electron/packages.ts). */
+export interface UpdatePackage {
+  /** interface: a new app.asar (the engine is kept); app: a whole KeyFinder.app; installer: Windows. */
+  kind: 'interface' | 'app' | 'installer'
+  version: string
+  current: string
+  /** Signed with KeyFinder's release key. */
+  signed: boolean
+  compared: 'newer' | 'same' | 'older'
+  notes: string | null
+  file: string
+}
+
+/** The version kept from before the last update, to go back to. */
+export interface PreviousVersion {
+  version: string
+  kind: 'interface' | 'bundle' | 'dir'
+  savedAt: number
+}
+
+export interface UpdateResult {
+  ok: boolean
+  action: 'update' | 'revert'
+  version: string
+  message: string
 }
 
 export interface DesktopAPI {
@@ -84,5 +113,15 @@ export interface DesktopAPI {
     check(): Promise<FoundUpdate | null>
     install(): Promise<void>
     onProgress(cb: (p: { received: number; total: number | null }) => void): () => void
+    /** An Open dialog for a .zip package, then what it is (null if cancelled). Nothing is installed yet. */
+    pickPackage(): Promise<UpdatePackage | null>
+    discardPackage(): Promise<void>
+    /** Installs the package picked last; KeyFinder restarts. */
+    installPackage(): Promise<void>
+    previous(): Promise<PreviousVersion | null>
+    /** Puts the previous version back; KeyFinder restarts. */
+    revert(): Promise<void>
+    /** How the last update or Go Back went, once, after the restart. */
+    takeResult(): Promise<UpdateResult | null>
   }
 }

@@ -161,3 +161,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_ID: ${{ needs.release.outputs.id }}
           TAG: ${{ needs.release.outputs.tag }}
+      # An update package (Profile ▸ Updates ▸ Install from Zip…) for when the Update button can't
+      # be used. Extra: if it fails, the release is published all the same.
+      - name: Add an update package
+        continue-on-error: true
+        run: |
+          npm ci
+          npm run update-package
+          gh release upload "$TAG" release/KeyFinder-*-update.zip --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.release.outputs.tag }}
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}

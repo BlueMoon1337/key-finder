@@ -15,6 +15,7 @@
     "build": "npm run typecheck && vite build && node scripts/build-electron.mjs",
     "build:web": "tsc --noEmit && vite build",
     "engine": "node scripts/build-engine.mjs",
+    "update-package": "node scripts/update-package.mjs",
     "dist:mac": "npm run build && electron-builder --mac --publish never",
     "dist:win": "npm run build && electron-builder --win --publish never"
   },

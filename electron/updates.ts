@@ -15,6 +15,7 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { Readable, Transform } from 'node:stream'
+import { swapInDownloaded } from './packages'
 import publicKeyPem from './update-key.pem'
 
 /** Where releases come from. */
@@ -89,11 +90,6 @@ export async function setToken(token: unknown) {
   if (/[\s\u0000-\u001f]/.test(t) || t.length > 400) throw new Error('That doesn’t look like a GitHub token.')
   await fsp.mkdir(path.dirname(tokenPath()), { recursive: true })
   await fsp.writeFile(tokenPath(), t, { mode: 0o600 })
-}
-
-/** The bundle, for macOS: …/KeyFinder.app/Contents/MacOS/KeyFinder → …/KeyFinder.app */
-function macBundle() {
-  return path.resolve(process.execPath, '..', '..', '..')
 }
 
 /**
@@ -282,44 +278,24 @@ export async function install(win: BrowserWindow | null, beforeRestart: () => vo
     throw new Error('The download doesn’t match its signature, so it wasn’t installed. Try again later.')
   }
 
-  if (process.platform === 'darwin') await installMac(file, dir)
-  else installWindows(file)
+  if (process.platform === 'darwin') await installMac(file, dir, found.version)
+  else await swapInDownloaded(file, found.version)
 
   pending = null
   beforeRestart()
   app.quit()
 }
 
-/** macOS: unpack the new KeyFinder.app, and once this one has quit, swap it in and open it. */
-async function installMac(zip: string, dir: string) {
+/**
+ * macOS: unpack the new KeyFinder.app; once this one has quit, it's swapped in (this one kept for
+ * Go Back, see packages.ts) and opened. On Windows the installer runs once KeyFinder has quit.
+ */
+async function installMac(zip: string, dir: string, version: string) {
   const unpacked = path.join(dir, 'unpacked')
   await run('/usr/bin/ditto', ['-x', '-k', zip, unpacked])
   const newApp = (await fsp.readdir(unpacked)).find((n) => n.endsWith('.app'))
   if (!newApp) throw new Error('The update didn’t contain KeyFinder.app.')
-  const target = macBundle()
-  try {
-    await fsp.access(path.dirname(target), fs.constants.W_OK)
-  } catch {
-    throw new Error(`KeyFinder can’t write to ${path.dirname(target)}. Move KeyFinder to your Applications folder, then try again.`)
-  }
-  // A small script outlives KeyFinder: wait for it to quit, swap the bundles, reopen.
-  const script = `
-    while kill -0 "$PID" 2>/dev/null; do sleep 0.2; done
-    rm -rf "$OLD.previous"
-    if mv "$OLD" "$OLD.previous" && mv "$NEW" "$OLD"; then rm -rf "$OLD.previous"; else mv "$OLD.previous" "$OLD"; fi
-    xattr -dr com.apple.quarantine "$OLD" 2>/dev/null
-    open "$OLD"
-  `
-  spawn('/bin/sh', ['-c', script], {
-    detached: true,
-    stdio: 'ignore',
-    env: { ...process.env, PID: String(process.pid), OLD: target, NEW: path.join(unpacked, newApp) },
-  }).unref()
-}
-
-/** Windows: the installer closes KeyFinder, installs over it silently and starts the new version. */
-function installWindows(installer: string) {
-  spawn(installer, ['/S', '--updated', '--force-run'], { detached: true, stdio: 'ignore' }).unref()
+  await swapInDownloaded(path.join(unpacked, newApp), version)
 }
 
 function run(cmd: string, args: string[]) {
