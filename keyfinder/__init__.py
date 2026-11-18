@@ -1,4 +1,4 @@
 """KeyFinder: a practice tool for musicians - key, tempo and chord detection,
 stem separation, pitch shifting and speed control."""
 
-__version__ = "1.3.0"
+__version__ = "1.3.1"
