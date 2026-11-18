@@ -20,6 +20,7 @@ import {
 } from './api'
 import { type EngineInfo, desktop } from './platform'
 import { playback } from './playback'
+import { pcOf } from './keys'
 
 export type View = 'library' | 'profile' | 'player' | 'chords' | 'keys' | 'transpose'
 export type SortKey = 'added' | 'title' | 'artist' | 'bpm' | 'key'
@@ -58,7 +59,8 @@ export interface AppState {
   focusSearch: number
   addOpen: boolean
   /** The chord the Chord Library shows. */
-  chord: { root: number; type: string }
+  /** ``name`` spells the root when it came from somewhere that spells it its own way (B♯ in C♯ major). */
+  chord: { root: number; type: string; name?: string }
 }
 
 const SETTINGS_KEY = 'keyfinder.settings'
@@ -150,16 +152,30 @@ export function navigate(view: View, songId?: string) {
   else applyRoute()
 }
 
-/** Opens the Chord Library at a chord: its root's pitch class and its type ("min7"). */
-export function openChord(root: number, type: string) {
-  location.hash = `#/chords/${root}/${type}`
+/**
+ * Opens the Chord Library at a chord: its root's pitch class and its type ("min7"), and how to
+ * spell the root ("B♯", "F♭") if not the library's usual way.
+ */
+export function openChord(root: number, type: string, name?: string) {
+  location.hash = `#/chords/${root}/${type}${name ? `/${encodeURIComponent(name)}` : ''}`
+}
+
+/** A root's name from a link, kept only if it's a note name that sounds as the root. */
+function rootSpelling(name: string | undefined, root: number) {
+  if (!name) return undefined
+  try {
+    const n = decodeURIComponent(name)
+    return /^[A-G][♯♭]?$/.test(n) && pcOf(n) === root ? n : undefined
+  } catch {
+    return undefined
+  }
 }
 
 export function applyRoute() {
   const m = location.hash.match(/^#\/song\/([0-9a-f]{32})$/)
-  const chord = location.hash.match(/^#\/chords(?:\/(\d{1,2})\/([\w-]+))?$/)
+  const chord = location.hash.match(/^#\/chords(?:\/(\d{1,2})\/([\w-]+)(?:\/([^/]+))?)?$/)
   if (m) setState({ view: 'player', songId: m[1] })
-  else if (chord) setState({ view: 'chords', chord: chord[1] ? { root: Number(chord[1]) % 12, type: chord[2] } : state.chord })
+  else if (chord) setState({ view: 'chords', chord: chord[1] ? { root: Number(chord[1]) % 12, type: chord[2], name: rootSpelling(chord[3], Number(chord[1]) % 12) } : state.chord })
   else {
     const page = location.hash.slice(2)
     setState({ view: page === 'profile' || page === 'keys' || page === 'transpose' ? page : 'library' })

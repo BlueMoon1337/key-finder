@@ -32,7 +32,7 @@ export function ChordLibrary() {
   const pick = useApp((s) => s.chord)
   const songs = useApp((s) => s.songs)
   const type = typeById(pick.type) ?? CHORD_TYPES[0]
-  const root = ROOTS[pick.root]
+  const root = pick.name ?? ROOTS[pick.root]
   const notes = spell(root, type)
   const keys = voicing(pick.root, type)
   const octaves = Math.ceil((Math.max(...keys) + 1) / 12)
@@ -61,7 +61,7 @@ export function ChordLibrary() {
         <div className="chord-roots" role="radiogroup" aria-label="Root">
           {ROOTS.map((r, i) => (
             <button key={r} role="radio" aria-checked={i === pick.root} className={i === pick.root ? 'active' : ''} onClick={() => openChord(i, type.id)}>
-              {r}
+              {i === pick.root && pick.name ? pick.name : r}
             </button>
           ))}
         </div>
@@ -70,7 +70,7 @@ export function ChordLibrary() {
             <span className="label">{g}</span>
             <div className="chord-types">
               {CHORD_TYPES.filter((t) => t.group === g).map((t) => (
-                <button key={t.id} className={`chip ${t.id === type.id ? 'active' : ''}`} title={`${root} ${t.name}`} onClick={() => openChord(pick.root, t.id)}>
+                <button key={t.id} className={`chip ${t.id === type.id ? 'active' : ''}`} title={`${root} ${t.name}`} onClick={() => openChord(pick.root, t.id, pick.name)}>
                   {chordSymbol(root, t)}
                   {usage.has(`${pick.root}:${t.id}`) && <i className="used-dot" aria-label="In your songs" />}
                 </button>

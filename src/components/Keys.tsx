@@ -238,7 +238,7 @@ export function Keys() {
               >
                 {chordSymbol(c.root, c.type)}
               </button>
-              <button className="text-btn small" title="Open in the Chord Library" onClick={() => openChord(c.rootPc, c.type.id)}>
+              <button className="text-btn small" title="Open in the Chord Library" onClick={() => openChord(c.rootPc, c.type.id, c.root)}>
                 Library
               </button>
             </div>

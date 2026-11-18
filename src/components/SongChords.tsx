@@ -118,7 +118,7 @@ export function SongChords({ chords, semitones, flatsAt }: {
                 <button className="text-btn small" onClick={() => playback.seek(e.first)} title="Go to where it's first played">
                   ▸ {formatTime(e.first)}
                 </button>
-                <button className="text-btn small" onClick={() => openChord(c.rootPc, c.type.id)} title="Open in the Chord Library">
+                <button className="text-btn small" onClick={() => openChord(c.rootPc, c.type.id, c.root)} title="Open in the Chord Library">
                   Library
                 </button>
               </span>

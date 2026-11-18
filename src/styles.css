@@ -1523,6 +1523,15 @@ button.destructive {
   border-color: var(--accent);
   color: #062226;
 }
+/* Coloured buttons keep their colour on hover (the plain button hover would grey them under dark text). */
+.chip.active:hover:not(:disabled),
+button.primary:hover:not(:disabled) {
+  background: #5fe0ec;
+}
+button.destructive:hover:not(:disabled) {
+  background: var(--danger);
+  filter: brightness(1.1);
+}
 .chip .muted {
   font-weight: 500;
 }
@@ -1840,8 +1849,18 @@ button.destructive {
 /* ------------------------------------------------------------------ keys */
 .keys-page {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   align-content: start;
+}
+.key-detail-play {
+  flex-wrap: wrap;
+}
+.key-detail-keys > svg {
+  max-width: 100%;
+}
+.keys-table-wrap {
+  min-width: 0;
 }
 .key-detail-head {
   display: flex;
@@ -1941,6 +1960,9 @@ button.destructive {
 @media (max-width: 700px) {
   .key-detail-chords {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .key-detail-name {
+    font-size: 22px;
   }
 }
 .key-detail-keys {
