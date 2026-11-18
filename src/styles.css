@@ -1836,3 +1836,110 @@ button.destructive {
     justify-content: flex-start;
   }
 }
+
+/* ------------------------------------------------------------------ keys */
+.keys-page {
+  display: grid;
+  gap: 18px;
+  align-content: start;
+}
+.key-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.key-detail-name {
+  font-size: 28px;
+  font-weight: 700;
+}
+.key-detail-head .pill-btn {
+  height: 40px;
+  font-size: 15px;
+}
+.key-detail .keyboard,
+.key-detail svg {
+  max-width: 100%;
+}
+.key-detail-chords {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+.key-detail-chord {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.key-detail-chord .pill-btn {
+  height: 40px;
+  padding: 0 10px;
+  font-size: 16px;
+  width: 100%;
+  justify-content: center;
+}
+.keys-table-wrap {
+  overflow-x: auto;
+}
+.keys-table {
+  width: 100%;
+  min-width: 600px;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.keys-table-wrap + .keys-table-wrap {
+  margin-top: 10px;
+}
+.keys-table th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.keys-table td {
+  padding: 2px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.keys-chord {
+  width: 100%;
+  text-align: left;
+  padding: 7px 6px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.keys-chord:hover {
+  background: var(--panel-2);
+}
+.keys-count .keys-chord {
+  color: var(--muted);
+  min-width: 0;
+  width: auto;
+}
+.keys-table tr.picked td {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.keys-table tr.picked td:first-child .keys-chord {
+  color: var(--accent);
+  font-weight: 700;
+}
+.keys-song {
+  color: var(--accent);
+  margin-left: 4px;
+}
+@media (max-width: 700px) {
+  .key-detail-chords {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}

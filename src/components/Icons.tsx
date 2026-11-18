@@ -134,6 +134,14 @@ export const TransposeIcon = (p: P) => (
   </svg>
 )
 
+/** A key signature: a staff with a sharp on it. */
+export const KeysIcon = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M3 6h18M3 10h18M3 14h18M3 18h18" opacity="0.45" />
+    <path d="M10 4.5v15M14 3.5v15M7.5 10.5l9-2M7.5 15.5l9-2" />
+  </svg>
+)
+
 /** The colourful app-style tiles in the Add a Song sheet. */
 export const FilesTile = () => (
   <svg viewBox="0 0 48 48" aria-hidden>

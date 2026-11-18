@@ -1,6 +1,6 @@
 import { useUpdates } from '../platform/updates'
 import { navigate, updateSettings, useApp } from '../store'
-import { LibraryIcon, PersonIcon, PianoIcon, SidebarIcon, TransposeIcon } from './Icons'
+import { KeysIcon, LibraryIcon, PersonIcon, PianoIcon, SidebarIcon, TransposeIcon } from './Icons'
 
 export function Sidebar() {
   const view = useApp((s) => s.view)
@@ -35,6 +35,10 @@ export function Sidebar() {
         <button className={`nav-item ${view === 'chords' ? 'active' : ''}`} onClick={() => navigate('chords')} title="Chords">
           <PianoIcon />
           <span>Chords</span>
+        </button>
+        <button className={`nav-item ${view === 'keys' ? 'active' : ''}`} onClick={() => navigate('keys')} title="Keys">
+          <KeysIcon />
+          <span>Keys</span>
         </button>
         <button className={`nav-item ${view === 'transpose' ? 'active' : ''}`} onClick={() => navigate('transpose')} title="Transpose">
           <TransposeIcon />

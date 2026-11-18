@@ -5,6 +5,7 @@ import { Library } from './components/Library'
 import { MiniPlayer } from './components/MiniPlayer'
 import { PlayerView } from './components/PlayerView'
 import { ChordLibrary } from './components/ChordLibrary'
+import { Keys } from './components/Keys'
 import { Transpose, addTransposeFiles } from './components/Transpose'
 import { Profile } from './components/Profile'
 import { Sidebar } from './components/Sidebar'
@@ -211,6 +212,7 @@ export function App() {
         {view === 'library' && <Library />}
         {view === 'profile' && <Profile />}
         {view === 'chords' && <ChordLibrary />}
+        {view === 'keys' && <Keys />}
         {view === 'transpose' && <Transpose />}
         {view === 'player' && songId && <PlayerView songId={songId} />}
       </div>

@@ -85,6 +85,19 @@ export function spell(root: string, type: ChordType): string[] {
   })
 }
 
+/**
+ * A scale spelled by letter from its tonic ("F♯", "C♭"): each step takes the next letter and
+ * whatever sharps or flats make its pitch, so every letter appears once (C♯ major ends on B♯).
+ */
+export function spellScale(tonic: string, steps: number[]): string[] {
+  const r = parseRoot(tonic)
+  return steps.map((s, i) => {
+    const letter = (r.letter + i) % 7
+    const diff = mod12(r.pc + s - NATURAL[letter])
+    return LETTERS[letter] + (diff === 0 ? '' : diff === 1 ? '♯' : diff === 2 ? '𝄪' : diff === 11 ? '♭' : diff === 10 ? '𝄫' : '?')
+  })
+}
+
 /** The name to show for a root pitch class in a key that uses flats, or sharps. */
 export function rootName(pc: number, flats: boolean) {
   return (flats ? ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B'] : ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'])[mod12(pc)]
