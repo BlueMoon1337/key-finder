@@ -4,6 +4,7 @@ import { findVoicings } from '../guitar'
 import { type DiatonicChord, DEGREE_HEADINGS, type KeyInfo, type Mode, keyChart, keyInfo, parseKey } from '../keys'
 import { openChord, useApp } from '../store'
 import { ChordDiagram } from './ChordDiagram'
+import { CircleOfFifths } from './CircleOfFifths'
 import { Keyboard } from './Keyboard'
 
 const CHARTS = { major: keyChart('major'), minor: keyChart('minor') }
@@ -244,6 +245,18 @@ export function Keys() {
             </div>
           ))}
         </div>
+      </section>
+
+      <section className="panel circle-panel">
+        <h2>Circle of Fifths</h2>
+        <p className="hint">
+          Each step clockwise is a fifth up and one more sharp; each step anticlockwise, a fourth up and one more flat. Click a key, or its
+          signature, to open it above and hear it.
+        </p>
+        <CircleOfFifths
+          picked={key.mode === 'major' ? key.tonic : key.relative.split(' ')[0]}
+          onPick={(tonic) => choose(keyInfo(tonic, 'major'))}
+        />
       </section>
 
       {(['major', 'minor'] as const).map((mode) => (

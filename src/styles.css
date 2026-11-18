@@ -2008,3 +2008,92 @@ button.destructive:hover:not(:disabled) {
 .chord-peek .muted {
   font-size: 13px;
 }
+
+/* circle of fifths */
+.circle-panel .hint {
+  margin: 0;
+}
+.circle-of-fifths {
+  width: 100%;
+  max-width: 660px;
+  justify-self: center;
+  overflow: visible;
+}
+.cof-wedge {
+  cursor: pointer;
+  stroke: var(--panel);
+  stroke-width: 2;
+  transition: d 0.15s;
+}
+.cof-wedge:hover {
+  filter: brightness(1.08);
+}
+.cof-spot.on .cof-wedge {
+  stroke: var(--text);
+  stroke-width: 3;
+}
+.cof-wedge:focus-visible,
+.cof-staff:focus-visible,
+.cof-name tspan:focus-visible {
+  outline: none;
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+.cof-name {
+  font-size: 32px;
+  font-weight: 800;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+.cof-name.pair {
+  font-size: 24px;
+}
+.cof-name tspan {
+  cursor: pointer;
+}
+.cof-name tspan.twin {
+  font-size: 19px;
+  font-weight: 700;
+  opacity: 0.85;
+}
+.cof-name tspan.picked {
+  text-decoration: underline;
+}
+.cof-count {
+  fill: var(--text);
+  font-size: 19px;
+  font-weight: 600;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+.cof-staff {
+  cursor: pointer;
+}
+.cof-staff-card {
+  fill: var(--panel-2);
+  stroke: var(--line);
+  stroke-width: 1;
+}
+.cof-staff:hover .cof-staff-card {
+  fill: var(--panel-3);
+}
+.cof-staff.on .cof-staff-card {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+.staff-line {
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+.clef {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.key-signature .acc path {
+  stroke: var(--text);
+  fill: none;
+  stroke-linecap: round;
+}
