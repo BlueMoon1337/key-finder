@@ -2010,12 +2010,36 @@ button.destructive:hover:not(:disabled) {
 }
 
 /* circle of fifths */
+.circle-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  align-content: start;
+}
+.circle-page-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+@media (min-width: 1250px) {
+  .circle-page-body {
+    grid-template-columns: minmax(0, 3fr) minmax(360px, 2fr);
+  }
+  .circle-detail {
+    position: sticky;
+    top: 16px;
+  }
+  .circle-detail .key-detail-chords {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
 .circle-panel .hint {
   margin: 0;
 }
 .circle-of-fifths {
   width: 100%;
-  max-width: 660px;
+  max-width: 820px;
   justify-self: center;
   overflow: visible;
 }
@@ -2023,14 +2047,14 @@ button.destructive:hover:not(:disabled) {
   cursor: pointer;
   stroke: var(--panel);
   stroke-width: 2;
-  transition: d 0.15s;
 }
-.cof-wedge:hover {
+.cof-wedge:hover,
+.cof-spot.hover .cof-wedge {
   filter: brightness(1.08);
 }
-.cof-spot.on .cof-wedge {
+.cof-wedge.on {
   stroke: var(--text);
-  stroke-width: 3;
+  stroke-width: 4;
 }
 .cof-wedge:focus-visible,
 .cof-staff:focus-visible,
@@ -2040,19 +2064,15 @@ button.destructive:hover:not(:disabled) {
   stroke-width: 3;
 }
 .cof-name {
-  font-size: 32px;
   font-weight: 800;
   text-anchor: middle;
   dominant-baseline: central;
-}
-.cof-name.pair {
-  font-size: 24px;
 }
 .cof-name tspan {
   cursor: pointer;
 }
 .cof-name tspan.twin {
-  font-size: 19px;
+  font-size: 0.8em;
   font-weight: 700;
   opacity: 0.85;
 }
@@ -2060,11 +2080,32 @@ button.destructive:hover:not(:disabled) {
   text-decoration: underline;
 }
 .cof-count {
-  fill: var(--text);
-  font-size: 19px;
+  fill: var(--muted);
+  font-size: 18px;
   font-weight: 600;
   text-anchor: middle;
   dominant-baseline: central;
+}
+.cof-readout text {
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+.cof-readout-name {
+  fill: var(--text);
+  font-size: 20px;
+  font-weight: 700;
+}
+.cof-readout-sub {
+  fill: var(--muted);
+  font-size: 14px;
+}
+.cof-readout-notes {
+  fill: var(--text);
+  font-size: 24px;
+  font-weight: 700;
+}
+.cof-readout.hovering .cof-readout-notes {
+  fill: var(--accent);
 }
 .cof-staff {
   cursor: pointer;
@@ -2078,8 +2119,14 @@ button.destructive:hover:not(:disabled) {
   fill: var(--panel-3);
 }
 .cof-staff.on .cof-staff-card {
-  stroke: var(--accent);
+  stroke: var(--text);
   stroke-width: 2.5;
+}
+.cof-staff.lit .key-signature .acc path {
+  stroke: var(--accent);
+}
+.cof-staff.lit .cof-staff-card {
+  fill: var(--panel-3);
 }
 .staff-line {
   stroke: var(--muted);

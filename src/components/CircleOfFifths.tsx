@@ -1,13 +1,15 @@
 // The circle of fifths: the twelve major keys a fifth apart, C at the top and a sharp more each
-// step clockwise (a flat more each step anticlockwise), with how many sharps or flats each has
-// inside the circle and its key signature on a staff outside. At the bottom the sharp and flat
-// keys meet: B is C♭, F♯ is G♭, D♭ is C♯. Coloured round the wheel from yellow C.
+// step clockwise (a flat more each step anticlockwise), their relative minors in a ring round
+// them, how many sharps or flats each has inside the circle, and its key signature on a staff
+// outside. At the bottom the sharp and flat keys meet: B is C♭, F♯ is G♭, D♭ is C♯. Coloured round
+// the wheel from yellow C. Hovering a key shows its sharps or flats in the middle.
 
+import { useState } from 'react'
 import { playChord, typeById, voicing } from '../chords'
-import { pcOf } from '../keys'
+import { type Mode, keyInfo, pcOf } from '../keys'
 
 interface Spot {
-  /** The keys at this place on the circle: the usual one first, then its enharmonic twin. */
+  /** The major keys at this place on the circle: the usual one first, then its enharmonic twin. */
   keys: { tonic: string; sharps: number; flats: number }[]
   color: string
 }
@@ -29,6 +31,25 @@ export const CIRCLE: Spot[] = [
   { keys: [k('B♭', 0, 2)], color: '#3cb64b' },
   { keys: [k('F', 0, 1)], color: '#9aca3c' },
 ]
+
+/** A major key's relative minor's tonic: C's is A, C♭'s is A♭. */
+export const relativeMinor = (tonic: string) => keyInfo(tonic, 'major').relative.split(' ')[0]
+/** The major key whose signature a key uses: its own, or its relative major's. */
+const signatureKey = (key: { tonic: string; mode: Mode }) => (key.mode === 'major' ? key.tonic : keyInfo(key.tonic, 'minor').relative.split(' ')[0])
+
+/** The order sharps and flats are added in a key signature. */
+const SHARP_ORDER = ['F', 'C', 'G', 'D', 'A', 'E', 'B']
+const FLAT_ORDER = ['B', 'E', 'A', 'D', 'G', 'C', 'F']
+/** The notes a key sharpens or flattens: D major's are F♯ and C♯. */
+export function accidentals(key: { tonic: string; mode: Mode }) {
+  const info = keyInfo(key.tonic, key.mode)
+  return (info.sharps ? SHARP_ORDER.map((n) => `${n}♯`) : FLAT_ORDER.map((n) => `${n}♭`)).slice(0, info.count)
+}
+
+function mix(hex: string, white: number) {
+  const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
+  return `#${c.map((v) => Math.round(v + (255 - v) * white).toString(16).padStart(2, '0')).join('')}`
+}
 
 /** Dark text on the light colours, white on the dark ones. */
 function inkFor(hex: string) {
@@ -67,11 +88,12 @@ function Flat({ x, y }: { x: number; y: number }) {
   )
 }
 
-/** A key signature on a treble staff: ``count`` sharps or flats. Returns it and its width. */
+/** How wide a key signature of ``count`` sharps or flats is drawn. */
 export function staffWidth(count: number) {
   return 26 + count * 9 + 6
 }
 
+/** A key signature on a treble staff: ``sharps`` sharps or ``flats`` flats. */
 export function KeySignature({ sharps, flats }: { sharps: number; flats: number }) {
   const count = sharps || flats
   const width = staffWidth(count)
@@ -90,82 +112,121 @@ export function KeySignature({ sharps, flats }: { sharps: number; flats: number 
 
 // ------------------------------------------------------------------ circle
 
-const R_IN = 148
-const R_OUT = 236
-const R_COUNT = 122
-const R_STAFF = 324
+const R_HOLE = 132 // the middle, where the counts and the hovered key's sharps or flats go
+const R_MAJOR = 222 // the major keys' ring, from R_HOLE
+const R_MINOR = 290 // the minor keys' ring, from R_MAJOR
+const R_COUNT = 112
+const R_STAFF = 374
 const STAFF_SCALE = 1.15
 const TWIN_GAP = 86 // a second staff sits this far below the first
 
 const polar = (r: number, deg: number) => [r * Math.cos((deg * Math.PI) / 180), r * Math.sin((deg * Math.PI) / 180)] as const
 const angleOf = (i: number) => -90 + i * 30
 
-function wedge(i: number, grow = 0) {
+function segment(i: number, r0: number, r1: number) {
   const a0 = angleOf(i) - 15
   const a1 = angleOf(i) + 15
-  const [x0, y0] = polar(R_OUT + grow, a0)
-  const [x1, y1] = polar(R_OUT + grow, a1)
-  const [x2, y2] = polar(R_IN, a1)
-  const [x3, y3] = polar(R_IN, a0)
-  return `M${x0} ${y0}A${R_OUT + grow} ${R_OUT + grow} 0 0 1 ${x1} ${y1}L${x2} ${y2}A${R_IN} ${R_IN} 0 0 0 ${x3} ${y3}Z`
+  const [x0, y0] = polar(r1, a0)
+  const [x1, y1] = polar(r1, a1)
+  const [x2, y2] = polar(r0, a1)
+  const [x3, y3] = polar(r0, a0)
+  return `M${x0} ${y0}A${r1} ${r1} 0 0 1 ${x1} ${y1}L${x2} ${y2}A${r0} ${r0} 0 0 0 ${x3} ${y3}Z`
 }
 
 const sup = (n: number, sharp: boolean) => `${n}${sharp ? '♯' : '♭'}`
+const keyName = (key: { tonic: string; mode: Mode }) => `${key.tonic} ${key.mode}`
 
 /**
- * The circle of fifths. ``picked`` is the major key whose signature is showing (a minor key's
- * relative major); clicking a key, its name or its staff picks it and plays its chord.
+ * The circle of fifths. ``picked`` is the key open beside it; clicking a key (major or minor),
+ * its name or its signature picks it and plays its chord. Hovering one shows its sharps or flats.
  */
-export function CircleOfFifths({ picked, onPick }: { picked: string | null; onPick: (tonic: string) => void }) {
-  const pickedPc = picked ? pcOf(picked) : null
-  const pick = (tonic: string) => {
-    onPick(tonic)
-    playChord(voicing(pcOf(tonic), typeById('maj')!))
+export function CircleOfFifths({ picked, onPick }: {
+  picked: { tonic: string; mode: Mode }
+  onPick: (key: { tonic: string; mode: Mode }) => void
+}) {
+  const [hovered, setHovered] = useState<{ tonic: string; mode: Mode } | null>(null)
+  const shown = hovered ?? picked
+  const shownSig = signatureKey(shown)
+  const pickedSig = signatureKey(picked)
+  const pickedPc = pcOf(picked.tonic)
+
+  const pick = (key: { tonic: string; mode: Mode }) => {
+    onPick(key)
+    playChord(voicing(pcOf(key.tonic), typeById(key.mode === 'major' ? 'maj' : 'min')!))
   }
-  const keyProps = (tonic: string, label: string) => ({
+  /** What makes a wedge, a name or a staff a key you can hover, click or press Enter on. */
+  const keyProps = (key: { tonic: string; mode: Mode }, label = keyName(key)) => ({
     role: 'button',
     tabIndex: 0,
     'aria-label': label,
     onClick: (e: React.MouseEvent) => {
       e.stopPropagation()
-      pick(tonic)
+      pick(key)
     },
     onKeyDown: (e: React.KeyboardEvent) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault()
-        pick(tonic)
+        pick(key)
       }
     },
+    onMouseEnter: (e: React.MouseEvent) => {
+      e.stopPropagation()
+      setHovered(key)
+    },
+    onMouseLeave: () => setHovered(null),
+    onFocus: () => setHovered(key),
+    onBlur: () => setHovered(null),
   })
 
+  /** A ring's names: one key, or two (the usual spelling over its twin). */
+  const names = (i: number, r: number, keys: { tonic: string; mode: Mode }[], ink: string, big: number) => {
+    const [tx, ty] = polar(r, angleOf(i))
+    const label = (key: { tonic: string; mode: Mode }) => (key.mode === 'minor' ? `${key.tonic}m` : key.tonic)
+    if (keys.length === 1) {
+      return (
+        <text x={tx} y={ty} className="cof-name" fill={ink} fontSize={big} pointerEvents="none">
+          {label(keys[0])}
+        </text>
+      )
+    }
+    return (
+      <text x={tx} y={ty - big * 0.42} className="cof-name pair" fill={ink} fontSize={big * 0.75}>
+        {keys.map((key, j) => (
+          <tspan
+            key={key.tonic}
+            x={tx}
+            dy={j ? big * 0.92 : 0}
+            className={`${j ? 'twin' : ''} ${picked.tonic === key.tonic && picked.mode === key.mode ? 'picked' : ''}`}
+            {...keyProps(key)}
+          >
+            {label(key)}
+          </tspan>
+        ))}
+      </text>
+    )
+  }
+
+  const list = accidentals(shown)
+  const lines = list.length > 4 ? [list.slice(0, 4), list.slice(4)] : [list]
+
   return (
-    <svg className="circle-of-fifths" viewBox="-410 -380 820 860" role="group" aria-label="Circle of fifths">
+    <svg className="circle-of-fifths" viewBox="-462 -446 924 990" role="group" aria-label="Circle of fifths" onMouseLeave={() => setHovered(null)}>
       {CIRCLE.map((spot, i) => {
-        const [main, twin] = spot.keys
-        const on = pickedPc !== null && pcOf(main.tonic) === pickedPc
-        const ink = inkFor(spot.color)
-        const [tx, ty] = polar((R_IN + R_OUT) / 2, angleOf(i))
-        const name = (tonic: string) => `${tonic} major`
+        const majors = spot.keys.map((x) => ({ tonic: x.tonic, mode: 'major' as Mode }))
+        const minors = spot.keys.map((x) => ({ tonic: relativeMinor(x.tonic), mode: 'minor' as Mode }))
+        const minorColor = mix(spot.color, 0.4)
+        const majorOn = picked.mode === 'major' && pcOf(majors[0].tonic) === pickedPc
+        const minorOn = picked.mode === 'minor' && pcOf(minors[0].tonic) === pickedPc
+        const hoverHere = hovered && signatureKey(hovered) && pcOf(signatureKey(hovered)) === pcOf(majors[0].tonic)
         return (
-          <g key={main.tonic} className={`cof-spot ${on ? 'on' : ''}`}>
-            <path d={wedge(i, on ? 10 : 0)} fill={spot.color} className="cof-wedge" {...keyProps(main.tonic, name(main.tonic))} />
-            {twin ? (
-              <text x={tx} y={ty - 14} className="cof-name pair" fill={ink}>
-                <tspan className={picked === main.tonic ? 'picked' : ''} {...keyProps(main.tonic, name(main.tonic))}>
-                  {main.tonic}
-                </tspan>
-                <tspan x={tx} dy={30} className={`twin ${picked === twin.tonic ? 'picked' : ''}`} {...keyProps(twin.tonic, name(twin.tonic))}>
-                  {twin.tonic}
-                </tspan>
-              </text>
-            ) : (
-              <text x={tx} y={ty} className="cof-name" fill={ink} pointerEvents="none">
-                {main.tonic}
-              </text>
-            )}
+          <g key={majors[0].tonic} className={`cof-spot ${hoverHere ? 'hover' : ''}`}>
+            <path d={segment(i, R_HOLE, R_MAJOR)} fill={spot.color} className={`cof-wedge ${majorOn ? 'on' : ''}`} {...keyProps(majors[0])} />
+            {names(i, (R_HOLE + R_MAJOR) / 2, majors, inkFor(spot.color), 32)}
+            <path d={segment(i, R_MAJOR, R_MINOR)} fill={minorColor} className={`cof-wedge minor ${minorOn ? 'on' : ''}`} {...keyProps(minors[0])} />
+            {names(i, (R_MAJOR + R_MINOR) / 2, minors, inkFor(minorColor), 22)}
             {/* how many sharps or flats, just inside the circle */}
             {(() => {
-              const [cx, cy] = polar(R_COUNT - (twin ? 6 : 0), angleOf(i))
+              const [cx, cy] = polar(R_COUNT - (spot.keys.length > 1 ? 6 : 0), angleOf(i))
               const counts = spot.keys.filter((x) => x.sharps || x.flats).map((x) => sup(x.sharps || x.flats, !!x.sharps))
               return counts.length === 2 ? (
                 <text x={cx} y={cy - 9} className="cof-count">
@@ -186,15 +247,13 @@ export function CircleOfFifths({ picked, onPick }: { picked: string | null; onPi
               const w = staffWidth(count) * STAFF_SCALE
               const h = 32 * STAFF_SCALE
               const [sx, sy] = polar(R_STAFF, angleOf(i))
-              const x = sx - w / 2
-              const y = sy - h / 2 + j * TWIN_GAP
-              const signatureOf = picked === key.tonic
+              const label = `${key.tonic} major and ${relativeMinor(key.tonic)} minor: ${count ? `${count} ${key.sharps ? 'sharp' : 'flat'}${count > 1 ? 's' : ''}` : 'no sharps or flats'}`
               return (
                 <g
                   key={key.tonic}
-                  className={`cof-staff ${signatureOf ? 'on' : ''}`}
-                  transform={`translate(${x} ${y}) scale(${STAFF_SCALE})`}
-                  {...keyProps(key.tonic, `${key.tonic} major: ${count ? `${count} ${key.sharps ? 'sharp' : 'flat'}${count > 1 ? 's' : ''}` : 'no sharps or flats'}`)}
+                  className={`cof-staff ${pickedSig === key.tonic ? 'on' : ''} ${shownSig === key.tonic ? 'lit' : ''}`}
+                  transform={`translate(${sx - w / 2} ${sy - h / 2 + j * TWIN_GAP}) scale(${STAFF_SCALE})`}
+                  {...keyProps({ tonic: key.tonic, mode: 'major' }, label)}
                 >
                   <rect x={-8} y={-16} width={staffWidth(count) + 16} height={68} rx={8} className="cof-staff-card" />
                   <KeySignature sharps={key.sharps} flats={key.flats} />
@@ -204,6 +263,20 @@ export function CircleOfFifths({ picked, onPick }: { picked: string | null; onPi
           </g>
         )
       })}
+      {/* the middle: the hovered (or open) key's sharps or flats */}
+      <g className={`cof-readout ${hovered ? 'hovering' : ''}`} aria-live="polite">
+        <text y={-46} className="cof-readout-name">
+          {keyName(shown)}
+        </text>
+        <text y={-22} className="cof-readout-sub">
+          {list.length ? `${list.length} ${list[0].endsWith('♯') ? 'sharp' : 'flat'}${list.length > 1 ? 's' : ''}` : 'no sharps or flats'}
+        </text>
+        {lines.map((line, j) => (
+          <text key={j} y={lines.length === 1 ? 14 : 8 + j * 30} className="cof-readout-notes">
+            {line.join(' ')}
+          </text>
+        ))}
+      </g>
     </svg>
   )
 }

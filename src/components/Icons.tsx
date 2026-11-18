@@ -134,6 +134,15 @@ export const TransposeIcon = (p: P) => (
   </svg>
 )
 
+/** The circle of fifths: a ring in twelve. */
+export const CircleIcon = (p: P) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="12" r="8.5" />
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 3.5V8M12 16v4.5M3.5 12H8M16 12h4.5M6 6l3.2 3.2M14.8 14.8 18 18M18 6l-3.2 3.2M9.2 14.8 6 18" opacity="0.6" />
+  </svg>
+)
+
 /** A key signature: a staff with a sharp on it. */
 export const KeysIcon = (p: P) => (
   <svg {...base(p)}>

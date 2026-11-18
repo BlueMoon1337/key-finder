@@ -22,7 +22,7 @@ import { type EngineInfo, desktop } from './platform'
 import { playback } from './playback'
 import { pcOf } from './keys'
 
-export type View = 'library' | 'profile' | 'player' | 'chords' | 'keys' | 'transpose'
+export type View = 'library' | 'profile' | 'player' | 'chords' | 'keys' | 'circle' | 'transpose'
 export type SortKey = 'added' | 'title' | 'artist' | 'bpm' | 'key'
 export type Filter = 'all' | 'ready' | 'processing' | 'major' | 'minor'
 
@@ -145,7 +145,7 @@ export function navigate(view: View, songId?: string) {
   const hash =
     view === 'player' && songId
       ? `#/song/${songId}`
-      : view === 'profile' || view === 'chords' || view === 'keys' || view === 'transpose'
+      : view === 'profile' || view === 'chords' || view === 'keys' || view === 'circle' || view === 'transpose'
         ? `#/${view}`
         : '#/'
   if (location.hash !== hash) location.hash = hash
@@ -178,7 +178,7 @@ export function applyRoute() {
   else if (chord) setState({ view: 'chords', chord: chord[1] ? { root: Number(chord[1]) % 12, type: chord[2], name: rootSpelling(chord[3], Number(chord[1]) % 12) } : state.chord })
   else {
     const page = location.hash.slice(2)
-    setState({ view: page === 'profile' || page === 'keys' || page === 'transpose' ? page : 'library' })
+    setState({ view: page === 'profile' || page === 'keys' || page === 'circle' || page === 'transpose' ? page : 'library' })
   }
 }
 
