@@ -149,18 +149,28 @@ let ctx: AudioContext | null = null
 
 /**
  * Plays notes (semitones above middle C's octave start) with a soft, piano-like tone: all together,
- * one after another (``arpeggio``, or ``gap`` seconds apart), or quickly from the lowest up, as a guitar's strum. A bass
- * note, if given, sounds an octave below.
+ * one after another (``arpeggio``, or ``gap`` seconds apart, as a melody), or quickly from the lowest
+ * up, as a guitar's strum. A bass note, if given, sounds an octave below. ``delay`` starts it that
+ * many seconds from now and ``length`` is how long each note rings. Returns a function that
+ * silences it.
  */
 export function playChord(
   notes: number[],
-  { arpeggio = false, strum = false, bass, gap }: { arpeggio?: boolean; strum?: boolean; bass?: number; gap?: number } = {},
-) {
+  { arpeggio = false, strum = false, bass, gap, delay = 0, length = 2.2 }: {
+    arpeggio?: boolean
+    strum?: boolean
+    bass?: number
+    gap?: number
+    delay?: number
+    length?: number
+  } = {},
+): () => void {
   ctx ??= new AudioContext()
   void ctx.resume()
-  const now = ctx.currentTime + 0.02
+  const now = ctx.currentTime + 0.02 + delay
   const out = ctx.createGain()
-  out.gain.value = 0.22 / Math.sqrt(notes.length + (bass === undefined ? 0 : 1))
+  // A melody sounds a note or two at once; a chord, all of them.
+  out.gain.value = 0.22 / Math.sqrt(gap !== undefined ? 2 : notes.length + (bass === undefined ? 0 : 1))
   out.connect(ctx.destination)
   const all = bass === undefined ? notes.map((n) => n + 48) : [bass + 36, ...notes.map((n) => n + 48)]
   all.forEach((midi, i) => {
@@ -169,8 +179,8 @@ export function playChord(
     const env = ctx!.createGain()
     env.gain.setValueAtTime(0, start)
     env.gain.linearRampToValueAtTime(1, start + 0.008)
-    env.gain.exponentialRampToValueAtTime(0.25, start + 0.4)
-    env.gain.exponentialRampToValueAtTime(0.0001, start + 2.2)
+    env.gain.exponentialRampToValueAtTime(0.25, start + Math.min(0.4, length / 2))
+    env.gain.exponentialRampToValueAtTime(0.0001, start + length)
     env.connect(out)
     for (const [mult, level, wave] of [[1, 1, 'triangle'], [2, 0.25, 'sine'], [3, 0.08, 'sine']] as const) {
       const osc = ctx!.createOscillator()
@@ -180,9 +190,16 @@ export function playChord(
       g.gain.value = level
       osc.connect(g).connect(env)
       osc.start(start)
-      osc.stop(start + 2.3)
+      osc.stop(start + length + 0.1)
     }
   })
+  return () => {
+    const t = ctx!.currentTime
+    out.gain.cancelScheduledValues(t)
+    out.gain.setValueAtTime(out.gain.value, t)
+    out.gain.linearRampToValueAtTime(0, t + 0.05)
+    window.setTimeout(() => out.disconnect(), 100)
+  }
 }
 
 /** Plays MIDI notes (a guitar shape's), strummed. */
