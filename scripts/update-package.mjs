@@ -60,13 +60,29 @@ if (process.env.UPDATE_SIGNING_KEY) {
 }
 
 const readme = `KeyFinder ${version} update package
+=============================
 
-Install it in KeyFinder: Profile ▸ Updates ▸ Install from Zip…, then choose this zip (no need to unzip it).
-KeyFinder keeps the version you have now, so Profile ▸ Updates ▸ Go Back can return to it.
-Your library and settings aren't touched.
-${manifest.signature ? '' : '\nThis package isn’t signed with KeyFinder’s release key; KeyFinder will say so.\n'}
-KeyFinder before 1.3.2 has no Install from Zip. On a Mac, unzip this and run in Terminal:
-  bash ~/Downloads/${name}/install-on-mac.sh
+Your library and settings aren't touched. The version you have now is kept, so you can go back to it.
+${manifest.signature ? '' : 'This package isn’t signed with KeyFinder’s release key.\n'}
+KeyFinder 1.3.2 or later
+------------------------
+1. In KeyFinder, open Profile ▸ Updates ▸ Install from Zip….
+2. Choose this zip (no need to unzip it).
+3. Click Install and Restart (Install Anyway and Restart for a package that isn't signed).
+To go back: Profile ▸ Updates ▸ Go Back.
+
+KeyFinder before 1.3.2, on a Mac (no Install from Zip yet)
+-----------------------------------------------------------
+1. Unzip this file in your Downloads folder (double-click it).
+2. Open Terminal (Applications ▸ Utilities ▸ Terminal).
+3. Paste this line and press Return:
+
+     bash ~/Downloads/${name}/install-on-mac.sh
+
+   If macOS asks whether Terminal may access Downloads or change apps, click Allow.
+4. The script quits KeyFinder, keeps the version you have for Go Back, puts ${version} in,
+   signs the app again (as the release build does) and opens it.
+To go back afterwards: Profile ▸ Updates ▸ Go Back, or run the command the script prints at the end.
 `
 // The fingerprint Electron may check app.asar against (Info.plist's ElectronAsarIntegrity).
 const headerHash = createHash('sha256').update(getRawHeader(asar).headerString).digest('hex')
