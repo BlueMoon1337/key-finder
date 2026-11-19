@@ -1,7 +1,8 @@
 // The Update button (adapted from Player's): new versions of KeyFinder come from the GitHub repository's releases, which a
 // GitHub Actions workflow builds and signs (.github/workflows/release.yml). The repository is
-// private, so KeyFinder downloads with a read-only GitHub token pasted in once; it's kept in a file
-// of its own in KeyFinder's settings folder and never handed to the page.
+// public, so no token is needed; one can still be added (for a private repository, or more checks
+// an hour than GitHub allows without one). It's kept in a file of its own in KeyFinder's settings
+// folder and never handed to the page.
 //
 // Each release carries latest.json: the version, its notes, and for each platform the file to
 // download, its SHA-512 and an Ed25519 signature over both. KeyFinder refuses any download whose
@@ -143,14 +144,14 @@ function request(url: string, headers: Record<string, string>): Promise<GitHubRe
  * Fetches from GitHub, following redirects by hand: release downloads redirect to a storage host,
  * which must not be sent the token.
  */
-async function github(url: string, token: string, accept: string): Promise<GitHubResponse> {
+async function github(url: string, token: string | null, accept: string): Promise<GitHubResponse> {
   const origin = new URL(api()).origin
   for (let hops = 0; hops < 5; hops++) {
     const res = await request(url, {
       Accept: accept,
       'User-Agent': 'KeyFinder',
       'X-GitHub-Api-Version': '2022-11-28',
-      ...(new URL(url).origin === origin ? { Authorization: `Bearer ${token}` } : {}),
+      ...(token && new URL(url).origin === origin ? { Authorization: `Bearer ${token}` } : {}),
     })
     if ('redirect' in res) {
       url = new URL(res.redirect, url).toString()
@@ -161,7 +162,7 @@ async function github(url: string, token: string, accept: string): Promise<GitHu
   throw new Error('GitHub redirected too many times.')
 }
 
-async function latestRelease(token: string): Promise<{ tag: string; assets: Asset[] }> {
+async function latestRelease(token: string | null): Promise<{ tag: string; assets: Asset[] }> {
   let res: GitHubResponse
   try {
     res = await github(`${api()}/repos/${REPOSITORY}/releases/latest`, token, 'application/vnd.github+json')
@@ -169,11 +170,20 @@ async function latestRelease(token: string): Promise<{ tag: string; assets: Asse
     throw new Error(`Couldn’t reach GitHub: ${(e as Error).message}`)
   }
   if (res.status === 401) {
-    throw new Error('GitHub didn’t accept the token. It may have expired: make a new one and paste it in.')
+    throw new Error('GitHub didn’t accept the token. It may have expired: make a new one and paste it in, or remove it.')
   }
-  if (res.status === 403 || res.status === 404) {
+  if (res.status === 403 || res.status === 429) {
     throw new Error(
-      `No release found. Either none has been published yet, or the token can’t read ${REPOSITORY} (it needs Contents: Read-only on that repository).`,
+      token
+        ? `GitHub refused (${res.status}): the token may not be able to read ${REPOSITORY}, or too many checks were made. Try again later.`
+        : 'GitHub’s limit for checks without a token was reached for now. Try again in an hour, or add a token.',
+    )
+  }
+  if (res.status === 404) {
+    throw new Error(
+      token
+        ? `No release found. Either none has been published yet, or the token can’t read ${REPOSITORY} (it needs Contents: Read-only on that repository).`
+        : `No release found. Either none has been published yet, or ${REPOSITORY} is private: then add a token.`,
     )
   }
   if (res.status !== 200) throw new Error(`GitHub answered with an error (${res.status}). Try again later.`)
@@ -187,7 +197,6 @@ let pending: { found: Found; entry: PlatformEntry; asset: Asset } | null = null
 /** Looks for a newer version. Returns it, or null when KeyFinder is up to date. */
 export async function check(): Promise<Found | null> {
   const token = readToken()
-  if (!token) throw new Error('Add a GitHub token first.')
   const release = await latestRelease(token)
   const current = app.getVersion()
   pending = null
@@ -224,7 +233,7 @@ export async function check(): Promise<Found | null> {
 }
 
 /** Downloads to the updates folder, hashing as it goes. */
-async function download(asset: Asset, token: string, file: string, onProgress: (received: number, total: number | null) => void) {
+async function download(asset: Asset, token: string | null, file: string, onProgress: (received: number, total: number | null) => void) {
   const res = await github(asset.url, token, 'application/octet-stream')
   if (res.status !== 200) throw new Error(`Couldn’t download the update (${res.status}).`)
   const total = Number(res.headers['content-length']) || null
@@ -260,7 +269,6 @@ export async function install(win: BrowserWindow | null, beforeRestart: () => vo
   if (why === 'development') throw new Error('Updates install only in the packaged app.')
   if (!pending) throw new Error('Check for updates first.')
   const token = readToken()
-  if (!token) throw new Error('Add a GitHub token first.')
   const { found, entry, asset } = pending
 
   const dir = path.join(app.getPath('userData'), 'updates')

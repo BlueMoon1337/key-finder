@@ -232,7 +232,7 @@ To publish a release:
 
 It needs the repository secret **`UPDATE_SIGNING_KEY`** (**Settings ▸ Secrets and variables ▸ Actions**). KeyFinder uses the same signing key pair as Player (`electron/update-key.pem` is Player's public key), so paste the same private key you use for Player. Updates are signed over "KeyFinder update", so a Player update can never be installed as a KeyFinder one. Without the secret the installers are still released, but with no update files, so the Update button doesn't offer that version.
 
-In the app, **Profile ▸ Updates** asks once for a fine-grained GitHub token with **Contents: Read-only** on this repository, since it's private. KeyFinder then checks for new releases at start-up and every six hours, and **Install and Restart** downloads the update, checks its signature, replaces the app and opens it again.
+In the app, KeyFinder checks for new releases at start-up and every six hours (**Profile ▸ Updates ▸ Check for Updates** checks now), and **Install and Restart** downloads the update, checks its signature, replaces the app and opens it again. The repository is public, so no GitHub token is needed; **GitHub token (optional)** takes a fine-grained token with **Contents: Read-only** on this repository, for when it's private or GitHub limits checks without one (60 an hour).
 
 ### Update packages and going back
 
@@ -244,7 +244,7 @@ When the Update button can't be used (no token, no network, or the Release workf
 
 KeyFinder checks the zip before installing anything: it must be KeyFinder, at a version it can read, for this computer, and match its checksum and (when it has one) its signature. Anything else is refused with **Zip File Invalid** and the reason. A package that isn't signed, or that's older than or the same as the version you have, is installed only with **Install Anyway**.
 
-Every update (from a package or from the Update button) first keeps the version it replaces in KeyFinder's settings folder (`versions/`). **Go Back to …** in **Profile ▸ Updates** puts it back, and keeps the version you went back from, so you can switch again. Updates and going back change only the app: the library (`Documents/KeyFinder Library`) and the settings stay as they are. The swap happens after KeyFinder quits, in a small script that keeps what's there until the new version is in place, then opens KeyFinder again and reports how it went.
+Every update (from a package or from the Update button) first keeps the version it replaces in KeyFinder's settings folder (`versions/`). **Go Back to …** in **Profile ▸ Updates** puts it back, and keeps the version you went back from, so you can switch again. It's offered only while the version that replaced it is the one running: after KeyFinder is replaced some other way (a new download dragged in), there's nothing to go back to. What updates download is removed the next time KeyFinder starts. Updates and going back change only the app: the library (`Documents/KeyFinder Library`) and the settings stay as they are. The swap happens after KeyFinder quits, in a small script that keeps what's there until the new version is in place, then opens KeyFinder again and reports how it went.
 
 KeyFinder before 1.3.2 has no Install from Zip. Every package also carries `install-on-mac.sh`, which installs it on a Mac by hand (`bash ~/Downloads/KeyFinder-<version>-update/install-on-mac.sh`) and keeps the replaced version for Go Back the same way.
 

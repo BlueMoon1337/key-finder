@@ -50,7 +50,7 @@ mkdir -p "$VERSIONS"
 rm -rf "$VERSIONS/previous.tmp" && mkdir -p "$VERSIONS/previous.tmp"
 cp "$RES/app.asar" "$VERSIONS/previous.tmp/app.asar"
 rm -rf "$VERSIONS/previous" && mv "$VERSIONS/previous.tmp" "$VERSIONS/previous"
-printf '{"version":"%s","kind":"interface","savedAt":%s000}' "$OLD_VERSION" "$(date +%s)" > "$VERSIONS/previous.json"
+printf '{"version":"%s","kind":"interface","savedAt":%s000,"replacedBy":"%s"}' "$OLD_VERSION" "$(date +%s)" "$VERSION" > "$VERSIONS/previous.json"
 BACKUP="$VERSIONS/previous/app.asar"
 echo "Kept $OLD_VERSION for Go Back (in $VERSIONS)"
 

@@ -43,6 +43,8 @@ export interface PreviousVersion {
   version: string
   kind: 'interface' | 'bundle' | 'dir'
   savedAt: number
+  /** The version that replaced it: Go Back is offered only while that's the one running. */
+  replacedBy?: string
 }
 
 export interface UpdateResult {
@@ -58,6 +60,8 @@ const versionsDir = () => path.join(app.getPath('userData'), 'versions')
 const previousDir = () => path.join(versionsDir(), 'previous')
 const previousMeta = () => path.join(versionsDir(), 'previous.json')
 const resultFile = () => path.join(versionsDir(), 'result.json')
+/** Present while a swap script is at work (it removes it when done). */
+const swapLock = () => path.join(versionsDir(), 'swapping')
 const stagingRoot = () => path.join(app.getPath('userData'), 'updates', 'packages')
 
 /** The running app's interface file. */
@@ -257,11 +261,29 @@ export async function previous(): Promise<PreviousVersion | null> {
   try {
     const meta = JSON.parse(await ofs.promises.readFile(previousMeta(), 'utf8')) as PreviousVersion
     if (!meta?.version || !PAYLOAD[meta.kind]) return null
+    // KeyFinder was replaced since some other way (a new download dragged in): what's kept was
+    // the version before something else, and its interface may not suit the engine there now.
+    if (meta.replacedBy && meta.replacedBy !== app.getVersion()) return null
     await ofs.promises.access(path.join(previousDir(), PAYLOAD[meta.kind]))
     return meta
   } catch {
     return null
   }
+}
+
+/**
+ * At start-up: removes what updates leave behind (the downloaded release, unpacked packages),
+ * unless a swap is still at work with them.
+ */
+export async function cleanUp() {
+  try {
+    const started = Number(await ofs.promises.readFile(swapLock(), 'utf8'))
+    if (Date.now() - started < 10 * 60_000) return
+  } catch {
+    // no swap at work
+  }
+  await ofs.promises.rm(path.join(app.getPath('userData'), 'updates'), { recursive: true, force: true }).catch(() => {})
+  await ofs.promises.rm(swapLock(), { force: true }).catch(() => {})
 }
 
 /** How the last update or Go Back went (once, after the restart). */
@@ -309,11 +331,17 @@ async function startSwap(swap: Swap) {
   const mac = process.platform === 'darwin'
   const target =
     swap.kind === 'interface' ? asarPath() : swap.kind === 'bundle' ? macBundle() : installDir()
-  await writable(path.dirname(target))
-  if (swap.kind === 'interface') await writable(target)
+  // Only what each swap changes must be writable. The Windows installer asks for an
+  // administrator itself when KeyFinder is installed for all users, so it needs nothing here.
+  if (swap.kind === 'interface') {
+    await writable(path.dirname(target))
+    await writable(target)
+  } else if (swap.kind === 'bundle') await writable(path.dirname(target))
+  else if (swap.kind === 'dir') await writable(target)
+  await ofs.promises.writeFile(swapLock(), String(Date.now()))
   // What's kept for Go Back: the same kind of thing as what's replaced (an installer replaces the whole folder).
   const keptKind: PreviousVersion['kind'] = swap.kind === 'installer' ? 'dir' : swap.kind
-  const kept: PreviousVersion = { version: app.getVersion(), kind: keptKind, savedAt: Date.now() }
+  const kept: PreviousVersion = { version: app.getVersion(), kind: keptKind, savedAt: Date.now(), replacedBy: swap.version }
   const env: Record<string, string> = {
     ...(process.env as Record<string, string>),
     KF_PID: String(process.pid),
@@ -326,13 +354,16 @@ async function startSwap(swap: Swap) {
     KF_META: JSON.stringify(kept),
     KF_META_FILE: previousMeta(),
     KF_RESULT: resultFile(),
+    KF_LOCK: swapLock(),
     KF_VERSION: swap.version,
     KF_HASH: swap.headerHash ?? '',
     KF_BUNDLE: mac ? macBundle() : '',
     KF_EXE: process.execPath,
   }
   if (process.platform === 'win32') {
-    spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-Command', WINDOWS_SCRIPT], {
+    // Encoded, so no quote in the script can be taken apart on the command line.
+    const encoded = Buffer.from(WINDOWS_SCRIPT, 'utf16le').toString('base64')
+    spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded], {
       detached: true, stdio: 'ignore', env, windowsHide: true,
     }).unref()
   } else {
@@ -371,12 +402,14 @@ export async function swapInDownloaded(source: string, version: string) {
 
 // macOS and Linux. Copies or moves into place, never deletes what's there until the new one is in.
 const POSIX_SCRIPT = String.raw`
+NOTE=""
 while kill -0 "$KF_PID" 2>/dev/null; do sleep 0.2; done
 sleep 0.5
 TMP="$KF_PREV.tmp"
 json() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 finish() {
   printf '{"ok":%s,"action":"%s","version":"%s","message":"%s"}' "$1" "$KF_ACTION" "$KF_VERSION" "$(json "$2")" > "$KF_RESULT"
+  rm -f "$KF_LOCK"
   if [ -n "$KF_BUNDLE" ]; then open "$KF_BUNDLE"; else nohup "$KF_EXE" >/dev/null 2>&1 & fi
   exit 0
 }
@@ -393,7 +426,9 @@ case "$KF_KIND" in
       if [ -n "$KF_HASH" ] && /usr/libexec/PlistBuddy -c "Print :ElectronAsarIntegrity:Resources/app.asar:hash" "$PL" >/dev/null 2>&1; then
         /usr/libexec/PlistBuddy -c "Set :ElectronAsarIntegrity:Resources/app.asar:hash $KF_HASH" "$PL"
       fi
-      codesign --force --deep --sign - "$KF_BUNDLE" >/dev/null 2>&1
+      if ! codesign --force --deep --sign - "$KF_BUNDLE" >/dev/null 2>&1; then
+        NOTE="macOS couldn't sign KeyFinder again. If it won't open, run: codesign --force --deep --sign - \"$KF_BUNDLE\""
+      fi
     fi
     ;;
   bundle)
@@ -409,7 +444,7 @@ case "$KF_KIND" in
     ;;
 esac
 rm -rf "$KF_PREV" && mv "$TMP" "$KF_PREV" && printf '%s' "$KF_META" > "$KF_META_FILE"
-finish true ""
+finish true "$NOTE"
 `
 
 // Windows. interface: swap app.asar; dir: swap the install folder; installer: keep the folder, then run it.
@@ -421,6 +456,7 @@ $tmp = "$($env:KF_PREV).tmp"
 function Finish($ok, $msg) {
   $r = @{ ok = $ok; action = $env:KF_ACTION; version = $env:KF_VERSION; message = $msg } | ConvertTo-Json -Compress
   [IO.File]::WriteAllText($env:KF_RESULT, $r)
+  Remove-Item -Force -ErrorAction SilentlyContinue $env:KF_LOCK
   if ($env:KF_KIND -ne 'installer' -or -not $ok) { Start-Process -FilePath $env:KF_EXE }
   exit 0
 }

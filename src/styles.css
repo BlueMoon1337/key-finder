@@ -2201,3 +2201,11 @@ button.destructive:hover:not(:disabled) {
 .zip-invalid b {
   font-size: 15px;
 }
+.update-token summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+}
+.update-token[open] summary {
+  margin-bottom: 10px;
+}

@@ -542,6 +542,7 @@ if (!app.requestSingleInstanceLock()) {
     engine = new Engine(libraryRoot(), path.join(app.getPath('userData'), 'models'))
     engine.onStatus((info) => win?.webContents.send('engine:status', info))
     engine.start()
+    void packages.cleanUp()
     registerAppProtocol()
     setupPermissions()
     registerIpc()

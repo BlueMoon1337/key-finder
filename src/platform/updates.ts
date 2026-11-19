@@ -78,7 +78,7 @@ const CHECK_EVERY_MS = 6 * 60 * 60 * 1000
 /** Looks for an update. A quiet check (the automatic ones) keeps a failure to itself. */
 export async function checkForUpdates({ quiet = false } = {}): Promise<void> {
   const before = state
-  if (!desktop || before.status === 'checking' || before.status === 'installing' || !before.hasToken) return
+  if (!desktop || before.status === 'checking' || before.status === 'installing') return
   set({ status: 'checking', error: null })
   try {
     const found = await desktop.updates.check()
@@ -99,7 +99,7 @@ export async function saveToken(token: string): Promise<void> {
   }
   const { hasToken } = await desktop.updates.info()
   set({ hasToken, found: null, status: 'idle', error: null })
-  if (hasToken) await checkForUpdates()
+  await checkForUpdates()
 }
 
 export async function installUpdate(): Promise<void> {

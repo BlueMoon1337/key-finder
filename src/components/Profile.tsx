@@ -335,7 +335,32 @@ function UpdatesSection() {
           <code>xattr -dr com.apple.quarantine /Applications/KeyFinder.app</code> in Terminal once, and open it again.
         </p>
       )}
-      {u.hasToken === false ? (
+      <div className="row wrap">
+        {u.status === 'available' && u.found ? (
+          <>
+            <span>
+              KeyFinder <b>{u.found.version}</b> is ready to install.
+            </span>
+            <button className="pill-btn accent" onClick={() => void installUpdate()} disabled={!!u.blocker}>
+              Install and Restart
+            </button>
+          </>
+        ) : u.status === 'installing' ? (
+          <span>Installing… {u.progress ? progressText(u.progress) : ''}</span>
+        ) : (
+          <>
+            <span className="hint">
+              {u.status === 'checking' ? 'Checking…' : u.status === 'none' ? 'KeyFinder is up to date.' : u.status === 'error' ? u.error : ''}
+            </span>
+            <button onClick={() => void checkForUpdates()} disabled={u.status === 'checking'}>
+              Check for Updates
+            </button>
+          </>
+        )}
+      </div>
+      {/* Not needed while the repository is public; for a private one, or more checks an hour. */}
+      <details className="update-token">
+        <summary>GitHub token (optional){u.hasToken ? ': saved' : ''}</summary>
         <form
           className="row wrap"
           onSubmit={async (e) => {
@@ -350,39 +375,32 @@ function UpdatesSection() {
           }}
         >
           <p className="hint">
-            Updates come from the private {REPOSITORY_NAME} repository. Paste a fine-grained GitHub token with <b>Contents: Read-only</b> access
-            to it; it’s kept on this computer only.
+            Updates come from the {REPOSITORY_NAME} repository on GitHub, which is public, so no token is needed. If it becomes private, or
+            GitHub limits checks without one, paste a fine-grained token with <b>Contents: Read-only</b> access to it; it’s kept on this
+            computer only.
           </p>
           <input type="password" placeholder="github_pat_…" value={token} onChange={(e) => setToken(e.target.value)} aria-label="GitHub token" />
-          <button className="pill-btn accent" disabled={!token.trim()}>
+          <button className="pill-btn" disabled={!token.trim()}>
             Save Token
           </button>
-        </form>
-      ) : (
-        <div className="row wrap">
-          {u.status === 'available' && u.found ? (
-            <>
-              <span>
-                KeyFinder <b>{u.found.version}</b> is ready to install.
-              </span>
-              <button className="pill-btn accent" onClick={() => void installUpdate()} disabled={!!u.blocker}>
-                Install and Restart
-              </button>
-            </>
-          ) : u.status === 'installing' ? (
-            <span>Installing… {u.progress ? progressText(u.progress) : ''}</span>
-          ) : (
-            <>
-              <span className="hint">
-                {u.status === 'checking' ? 'Checking…' : u.status === 'none' ? 'KeyFinder is up to date.' : u.status === 'error' ? u.error : ''}
-              </span>
-              <button onClick={() => void checkForUpdates()} disabled={u.status === 'checking'}>
-                Check for Updates
-              </button>
-            </>
+          {u.hasToken && (
+            <button
+              type="button"
+              className="text-btn"
+              onClick={async () => {
+                setError(null)
+                try {
+                  await saveToken('')
+                } catch (err) {
+                  setError(errorMessage(err))
+                }
+              }}
+            >
+              Remove Token
+            </button>
           )}
-        </div>
-      )}
+        </form>
+      </details>
       {u.found?.notes && u.status === 'available' && <pre className="log">{u.found.notes}</pre>}
       {error && <p className="error">{error}</p>}
       <PackageUpdates />
@@ -452,7 +470,7 @@ function PackageUpdates() {
             {u.result.ok
               ? u.result.action === 'revert'
                 ? `Went back to KeyFinder ${u.result.version}.`
-                : `Updated to KeyFinder ${u.result.version}.`
+                : `Updated to KeyFinder ${u.result.version}.${u.result.message ? ` ${u.result.message}` : ''}`
               : `${u.result.action === 'revert' ? 'Going back' : 'The update'} didn’t work: ${u.result.message}`}
           </span>
           <button className="text-btn small" onClick={dismissResult}>
