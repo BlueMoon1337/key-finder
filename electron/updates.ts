@@ -191,6 +191,35 @@ async function latestRelease(token: string | null): Promise<{ tag: string; asset
   return { tag: body.tag_name, assets: body.assets ?? [] }
 }
 
+/**
+ * The signed entry for this computer in release v<version>'s latest.json, or null when it can't be
+ * had (no network, no such release, no update files, or a signature that doesn't verify). Install
+ * from Zip uses it to tell a release's own app download from any other.
+ */
+export async function releaseEntry(version: string): Promise<PlatformEntry | null> {
+  const attempt = async () => {
+    const token = readToken()
+    const res = await github(`${api()}/repos/${REPOSITORY}/releases/tags/v${encodeURIComponent(version)}`, token, 'application/vnd.github+json')
+    const body = await readAll(res.body)
+    if (res.status !== 200) return null
+    const asset = (JSON.parse(body) as { assets?: Asset[] }).assets?.find((a) => a.name === 'latest.json')
+    if (!asset) return null
+    const res2 = await github(asset.url, token, 'application/octet-stream')
+    const text = await readAll(res2.body)
+    if (res2.status !== 200) return null
+    const manifest = JSON.parse(text) as Manifest
+    const entry = manifest.platforms?.[PLATFORM_KEY]
+    if (manifest.version !== version || !entry?.file || !entry.sha512 || !entry.signature) return null
+    const message = Buffer.from(signedMessage(version, PLATFORM_KEY, entry.file, entry.sha512))
+    return verify(null, message, PUBLIC_KEY, Buffer.from(entry.signature, 'base64')) ? entry : null
+  }
+  try {
+    return await Promise.race([attempt(), new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000))])
+  } catch {
+    return null
+  }
+}
+
 /** The update found by the last check, ready to install. */
 let pending: { found: Found; entry: PlatformEntry; asset: Asset } | null = null
 

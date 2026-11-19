@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
 
     import uvicorn
 
-    from . import __version__
+    from . import ENGINE_API, __version__
     from .server import create_app
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -72,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
 
     async def startup(sockets=None):
         await original_startup(sockets=sockets)
-        print(f"{READY} {json.dumps({'port': port, 'version': __version__})}", flush=True)
+        print(f"{READY} {json.dumps({'port': port, 'version': __version__, 'api': ENGINE_API})}", flush=True)
 
     server.startup = startup
     server.run(sockets=[sock])

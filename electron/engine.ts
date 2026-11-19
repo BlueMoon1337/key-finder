@@ -38,6 +38,8 @@ function engineCommand(): Command {
 
 export class Engine {
   readonly token = randomBytes(32).toString('hex')
+  /** What the interface can count on from the running engine (ENGINE_API), once it's ready. */
+  api: number | null = null
   private child: ChildProcessWithoutNullStreams | null = null
   private port: number | null = null
   private version: string | null = null
@@ -108,9 +110,11 @@ export class Engine {
         if (line.startsWith(READY)) {
           clearTimeout(timer)
           try {
-            const { port, version } = JSON.parse(line.slice(READY.length))
+            const { port, version, api } = JSON.parse(line.slice(READY.length))
             this.port = port
             this.version = version
+            // Engines from before the number count as 1 (keyfinder/__init__.py ENGINE_API).
+            this.api = typeof api === 'number' ? api : 1
             this.restarts = 0
             this.setStatus('ready', null)
             this.waiters.splice(0).forEach((w) => w.resolve(port))

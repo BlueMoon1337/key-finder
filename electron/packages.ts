@@ -18,7 +18,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 // Electron's fs treats .asar files as folders; this one sees them as the files they are.
 import ofs from 'original-fs'
-import { blocker as updateBlocker, newer, PLATFORM_KEY, signedMessage } from './updates'
+import { POSIX_SCRIPT, WINDOWS_SCRIPT } from './swap-scripts'
+import { blocker as updateBlocker, newer, PLATFORM_KEY, releaseEntry, signedMessage } from './updates'
 import publicKeyPem from './update-key.pem'
 
 const PUBLIC_KEY = createPublicKey(publicKeyPem)
@@ -37,6 +38,8 @@ export interface PackageInfo {
   compared: 'newer' | 'same' | 'older'
   notes: string | null
   file: string
+  /** Something to know before installing (the engine couldn't be asked, say). */
+  warning: string | null
 }
 
 export interface PreviousVersion {
@@ -147,6 +150,12 @@ function machArch(file: string): string | null {
 
 const plist = (file: string, key: string) => run('/usr/bin/plutil', ['-extract', key, 'raw', '-o', '-', file]).then((s) => s.trim())
 
+/** Whether `file` is exactly the download release v<version> signed for this computer. */
+async function matchesRelease(version: string, file: string) {
+  const entry = await releaseEntry(version)
+  return !!entry && (await sha512(file)) === entry.sha512.toLowerCase()
+}
+
 function compare(version: string, current: string): PackageInfo['compared'] {
   return newer(version, current) ? 'newer' : newer(current, version) ? 'older' : 'same'
 }
@@ -164,7 +173,7 @@ export function blocker(): string | null {
 }
 
 /** Unpacks a zip and works out what it is, without installing anything. */
-export async function inspect(zip: string): Promise<PackageInfo> {
+export async function inspect(zip: string, engineApi: number | null): Promise<PackageInfo> {
   if (!/\.zip$/i.test(zip)) throw new Error('Choose a .zip update package.')
   await ofs.promises.rm(stagingRoot(), { recursive: true, force: true })
   // A fresh folder each time: Electron remembers .asar files it has read by their path.
@@ -179,7 +188,7 @@ export async function inspect(zip: string): Promise<PackageInfo> {
   const current = app.getVersion()
   const file = path.basename(zip)
 
-  let manifest: { kind?: string; version?: string; sha512?: string; signature?: string; notes?: string } | null = null
+  let manifest: { kind?: string; version?: string; sha512?: string; signature?: string; notes?: string; engineApi?: number } | null = null
   const manifestFile = byName(/^keyfinder-update\.json$/i)
   if (manifestFile) {
     try {
@@ -207,6 +216,16 @@ export async function inspect(zip: string): Promise<PackageInfo> {
     if (manifest?.version && manifest.version !== pkg.version) {
       throw new Error(`The package says ${manifest.version} but contains ${pkg.version}, so it wasn’t installed.`)
     }
+    // It carries only the interface and keeps the engine installed, which must be new enough.
+    let warning: string | null = null
+    const needs = typeof manifest?.engineApi === 'number' ? manifest.engineApi : 1
+    if (engineApi === null) {
+      if (needs > 1) warning = 'The analysis engine isn’t running, so KeyFinder can’t check that it suits this version.'
+    } else if (engineApi < needs) {
+      throw new Error(
+        `KeyFinder ${pkg.version} needs a newer analysis engine than the one installed, which an update package doesn’t bring. Install the whole app instead: Check for Updates, or the release’s app download.`,
+      )
+    }
     const digest = await sha512(asar)
     // The checksum, when given, must match (a damaged download doesn't); the signature, when
     // given, must be the release key's over that checksum.
@@ -223,7 +242,7 @@ export async function inspect(zip: string): Promise<PackageInfo> {
     }
     pending = {
       kind: 'interface', version: pkg.version, current, signed, compared: compare(pkg.version, current),
-      notes: manifest?.notes?.trim() || null, file, payload: asar, staged, headerHash: asarHeaderHash(asar),
+      notes: manifest?.notes?.trim() || null, file, payload: asar, staged, headerHash: asarHeaderHash(asar), warning,
     }
   } else if (bundle) {
     if (process.platform !== 'darwin') throw new Error('That package is KeyFinder for Mac; this computer needs the Windows installer.')
@@ -236,12 +255,15 @@ export async function inspect(zip: string): Promise<PackageInfo> {
       const chip = (a: string) => (a === 'arm64' ? 'Apple silicon' : 'Intel')
       throw new Error(`That package is KeyFinder for ${chip(arch)} Macs; this Mac needs the ${chip(process.arch)} one (${PLATFORM_KEY}).`)
     }
-    pending = { kind: 'app', version, current, signed: false, compared: compare(version, current), notes: null, file, payload: bundle, staged, headerHash: null }
+    // A release's own Mac download is signed in that release's update file.
+    const signed = await matchesRelease(version, zip)
+    pending = { kind: 'app', version, current, signed, compared: compare(version, current), notes: null, file, payload: bundle, staged, headerHash: null, warning: null }
   } else if (installer) {
     if (process.platform !== 'win32') throw new Error('That package is the Windows installer; this computer needs KeyFinder for Mac.')
     const version = /(\d+\.\d+\.\d+)/.exec(path.basename(installer))?.[1]
     if (!version) throw new Error('Can’t tell which version that installer is.')
-    pending = { kind: 'installer', version, current, signed: false, compared: compare(version, current), notes: null, file, payload: installer, staged, headerHash: null }
+    const signed = await matchesRelease(version, installer)
+    pending = { kind: 'installer', version, current, signed, compared: compare(version, current), notes: null, file, payload: installer, staged, headerHash: null, warning: null }
   } else {
     throw new Error('That zip isn’t a KeyFinder update package: it has no app.asar, KeyFinder.app or installer in it.')
   }
@@ -397,105 +419,3 @@ export async function revert(beforeRestart: () => void) {
 export async function swapInDownloaded(source: string, version: string) {
   await startSwap({ action: 'update', kind: process.platform === 'darwin' ? 'bundle' : 'installer', source, version })
 }
-
-// ------------------------------------------------------------------ the scripts
-
-// macOS and Linux. Copies or moves into place, never deletes what's there until the new one is in.
-const POSIX_SCRIPT = String.raw`
-NOTE=""
-while kill -0 "$KF_PID" 2>/dev/null; do sleep 0.2; done
-sleep 0.5
-TMP="$KF_PREV.tmp"
-json() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
-finish() {
-  printf '{"ok":%s,"action":"%s","version":"%s","message":"%s"}' "$1" "$KF_ACTION" "$KF_VERSION" "$(json "$2")" > "$KF_RESULT"
-  rm -f "$KF_LOCK"
-  if [ -n "$KF_BUNDLE" ]; then open "$KF_BUNDLE"; else nohup "$KF_EXE" >/dev/null 2>&1 & fi
-  exit 0
-}
-rm -rf "$TMP" && mkdir -p "$TMP" || finish false "Couldn't make room to keep the current version."
-case "$KF_KIND" in
-  interface)
-    cp "$KF_TARGET" "$TMP/$KF_PREV_PAYLOAD" || finish false "Couldn't keep the current version, so nothing was changed."
-    cp "$KF_SOURCE" "$KF_TARGET.new" || { rm -f "$KF_TARGET.new"; finish false "Couldn't copy the new version in, so nothing was changed."; }
-    mv -f "$KF_TARGET.new" "$KF_TARGET" || { rm -f "$KF_TARGET.new"; finish false "Couldn't put the new version in place, so nothing was changed."; }
-    if [ -n "$KF_BUNDLE" ]; then
-      PL="$KF_BUNDLE/Contents/Info.plist"
-      /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $KF_VERSION" "$PL" 2>/dev/null
-      /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $KF_VERSION" "$PL" 2>/dev/null
-      if [ -n "$KF_HASH" ] && /usr/libexec/PlistBuddy -c "Print :ElectronAsarIntegrity:Resources/app.asar:hash" "$PL" >/dev/null 2>&1; then
-        /usr/libexec/PlistBuddy -c "Set :ElectronAsarIntegrity:Resources/app.asar:hash $KF_HASH" "$PL"
-      fi
-      if ! codesign --force --deep --sign - "$KF_BUNDLE" >/dev/null 2>&1; then
-        NOTE="macOS couldn't sign KeyFinder again. If it won't open, run: codesign --force --deep --sign - \"$KF_BUNDLE\""
-      fi
-    fi
-    ;;
-  bundle)
-    mv "$KF_TARGET" "$TMP/$KF_PREV_PAYLOAD" || finish false "Couldn't move the current version aside, so nothing was changed."
-    if ! mv "$KF_SOURCE" "$KF_TARGET"; then
-      mv "$TMP/$KF_PREV_PAYLOAD" "$KF_TARGET"
-      finish false "Couldn't put the new version in place, so the current one was put back."
-    fi
-    xattr -dr com.apple.quarantine "$KF_TARGET" 2>/dev/null
-    ;;
-  *)
-    finish false "This kind of update can't be installed on this computer."
-    ;;
-esac
-rm -rf "$KF_PREV" && mv "$TMP" "$KF_PREV" && printf '%s' "$KF_META" > "$KF_META_FILE"
-finish true "$NOTE"
-`
-
-// Windows. interface: swap app.asar; dir: swap the install folder; installer: keep the folder, then run it.
-const WINDOWS_SCRIPT = String.raw`
-$ErrorActionPreference = 'Stop'
-try { Wait-Process -Id ([int]$env:KF_PID) -Timeout 60 } catch {}
-Start-Sleep -Milliseconds 500
-$tmp = "$($env:KF_PREV).tmp"
-function Finish($ok, $msg) {
-  $r = @{ ok = $ok; action = $env:KF_ACTION; version = $env:KF_VERSION; message = $msg } | ConvertTo-Json -Compress
-  [IO.File]::WriteAllText($env:KF_RESULT, $r)
-  Remove-Item -Force -ErrorAction SilentlyContinue $env:KF_LOCK
-  if ($env:KF_KIND -ne 'installer' -or -not $ok) { Start-Process -FilePath $env:KF_EXE }
-  exit 0
-}
-function Keep() {
-  Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $env:KF_PREV
-  Move-Item $tmp $env:KF_PREV
-  [IO.File]::WriteAllText($env:KF_META_FILE, $env:KF_META)
-}
-try {
-  Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $tmp
-  New-Item -ItemType Directory -Force $tmp | Out-Null
-} catch { Finish $false "Couldn't make room to keep the current version." }
-switch ($env:KF_KIND) {
-  'interface' {
-    try { Copy-Item $env:KF_TARGET (Join-Path $tmp $env:KF_PREV_PAYLOAD) } catch { Finish $false "Couldn't keep the current version, so nothing was changed." }
-    try { Copy-Item $env:KF_SOURCE "$($env:KF_TARGET).new"; Move-Item -Force "$($env:KF_TARGET).new" $env:KF_TARGET }
-    catch { Remove-Item -Force -ErrorAction SilentlyContinue "$($env:KF_TARGET).new"; Finish $false "Couldn't put the new version in place, so nothing was changed." }
-    Keep; Finish $true ''
-  }
-  'dir' {
-    $keep = Join-Path $tmp $env:KF_PREV_PAYLOAD
-    robocopy $env:KF_TARGET $keep /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
-    if ($LASTEXITCODE -ge 8) { Finish $false "Couldn't keep the current version, so nothing was changed." }
-    robocopy $env:KF_SOURCE $env:KF_TARGET /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
-    if ($LASTEXITCODE -ge 8) {
-      robocopy $keep $env:KF_TARGET /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
-      Finish $false "Couldn't put the previous version in place, so the current one was put back."
-    }
-    Keep; Finish $true ''
-  }
-  'installer' {
-    $keep = Join-Path $tmp $env:KF_PREV_PAYLOAD
-    robocopy $env:KF_TARGET $keep /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
-    $kept = $LASTEXITCODE -lt 8
-    $p = Start-Process -FilePath $env:KF_SOURCE -ArgumentList '/S','--updated','--force-run' -PassThru -Wait
-    if ($p.ExitCode -ne 0) { Finish $false "The installer stopped (code $($p.ExitCode)); KeyFinder wasn't changed." }
-    if ($kept) { Keep }
-    Finish $true ''
-  }
-}
-Finish $false "This kind of update can't be installed on this computer."
-`

@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from synth import progression
 
-from keyfinder import audio
+from keyfinder import ENGINE_API, audio
 from keyfinder.server import create_app
 
 
@@ -103,6 +103,7 @@ def test_built_ui_is_served(tmp_path):
         assert "KeyFinder UI" in c.get("/").text
         caps = c.get("/api/capabilities").json()
         assert "dsp" in caps["backends"] and caps["desktop"] is False
+        assert caps["api"] == ENGINE_API >= 1
 
 
 def test_without_built_ui_explains_how_to_build(client, monkeypatch):

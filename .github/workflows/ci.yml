@@ -29,3 +29,20 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npx vite build
+
+  # The scripts that swap KeyFinder's versions when it updates or goes back (electron/swap-scripts.ts),
+  # run for real on each system KeyFinder ships for.
+  swap-scripts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node scripts/check-swap-scripts.mjs

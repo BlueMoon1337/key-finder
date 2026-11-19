@@ -25,7 +25,20 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from . import __version__, audio, key, lyrics, neural, player_export, remote, separation, stems, tempo, transform
+from . import (
+    ENGINE_API,
+    __version__,
+    audio,
+    key,
+    lyrics,
+    neural,
+    player_export,
+    remote,
+    separation,
+    stems,
+    tempo,
+    transform,
+)
 from .jobs import ORIGINAL, JobStore, SongNotFound, stem_labels
 from .transposer import FORMATS as TRANSPOSE_FORMATS
 from .transposer import NotFound, Transposer
@@ -83,6 +96,7 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
     def capabilities():
         return {
             "version": __version__,
+            "api": ENGINE_API,
             "backends": separation.available_backends(),
             "modes": {name: list(stems) for name, stems in separation.MODES.items()},
             "dsp_modes": list(separation.DSP_MODES),

@@ -17,6 +17,8 @@ import path from 'node:path'
 import zlib from 'node:zlib'
 
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'))
+// The engine this interface was built with, which an installed one must be at least as new as.
+const engineApi = Number(/^ENGINE_API\s*=\s*(\d+)/m.exec(fs.readFileSync('keyfinder/__init__.py', 'utf8'))?.[1] ?? 1)
 const version = pkg.version
 const OUT_DIR = 'release'
 const name = `KeyFinder-${version}-update`
@@ -50,6 +52,7 @@ const manifest = {
   format: 1,
   kind: 'interface',
   version,
+  engineApi,
   file: 'app.asar',
   sha512,
   date: new Date().toISOString(),

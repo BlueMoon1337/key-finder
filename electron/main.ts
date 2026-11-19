@@ -489,7 +489,7 @@ function registerIpc() {
     }
     const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
     if (r.canceled || !r.filePaths[0]) return null
-    return packages.inspect(r.filePaths[0])
+    return packages.inspect(r.filePaths[0], engine?.info().status === 'ready' ? engine.api : null)
   })
   handle('updates:discard-package', () => packages.discard())
   handle('updates:install-package', () => packages.install(() => engine.stop()))

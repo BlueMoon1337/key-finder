@@ -60,6 +60,8 @@ export interface UpdatePackage {
   compared: 'newer' | 'same' | 'older'
   notes: string | null
   file: string
+  /** Something to know before installing. */
+  warning: string | null
 }
 
 /** The version kept from before the last update, to go back to. */

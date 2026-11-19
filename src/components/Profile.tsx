@@ -508,6 +508,7 @@ function PackageUpdates() {
               {p.compared === 'same' ? `You already have ${p.current}; this installs it again.` : `This is older than ${p.current}, the version you have.`}
             </div>
           )}
+          {p.warning && <div className="warn">{p.warning}</div>}
           {p.notes && <pre className="log">{p.notes}</pre>}
           <div className="row wrap">
             <button className="pill-btn accent" onClick={() => void install()} disabled={!!u.restarting}>
