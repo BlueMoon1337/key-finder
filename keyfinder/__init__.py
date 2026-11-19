@@ -1,7 +1,7 @@
 """KeyFinder: a practice tool for musicians - key, tempo and chord detection,
 stem separation, pitch shifting and speed control."""
 
-__version__ = "1.3.3"
+__version__ = "1.3.4"
 
 # What the interface can count on from this engine. Raise it when the engine changes in a way an
 # older interface can't work with, or a newer one needs (an endpoint added, renamed or reshaped):
