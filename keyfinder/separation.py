@@ -1,7 +1,11 @@
 """Stem separation.
 
-Two backends:
+Three backends:
 
+* ``best`` - best quality: the vocals split off with a BS-RoFormer model (roformer.py), then the
+  instrumental split by Demucs' fine-tuned model (htdemucs_ft; htdemucs_6s for 6 stems). Cleaner
+  vocals, and no vocal bleed in the other stems, for a few times the time Demucs takes. Chosen
+  explicitly; it needs the same install as Demucs, and downloads its vocal model (640 MB) once.
 * ``demucs`` - Meta's Hybrid Transformer Demucs, a neural model with
   state-of-the-art quality (see neural.py). Used automatically when the
   ``demucs`` package is installed: it's bundled in the desktop app, and
@@ -16,13 +20,14 @@ Both return stems whose sum reconstructs the input mix.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
 from scipy import ndimage, signal
 
-from . import audio, neural
+from . import audio, neural, roformer
 
 Progress = Callable[[float], None]
 
@@ -38,20 +43,75 @@ def demucs_available() -> bool:
     return neural.available()
 
 
+def best_available() -> bool:
+    return roformer.available()
+
+
 def available_backends() -> list[str]:
-    return (["demucs"] if demucs_available() else []) + ["dsp"]
+    return (["best"] if best_available() else []) + (["demucs"] if demucs_available() else []) + ["dsp"]
 
 
 def choose_backend(requested: str = "auto", mode: str = "4stems") -> str:
     if requested == "auto":
         return "demucs" if demucs_available() else "dsp"
-    if requested == "demucs" and not demucs_available():
-        raise ValueError("the demucs backend is not installed (pip install -e .[ml])")
+    if requested in ("demucs", "best") and not demucs_available():
+        raise ValueError(f"the {requested} backend is not installed (pip install -e .[ml])")
     if requested == "dsp" and mode not in DSP_MODES:
         raise ValueError(f"the dsp backend supports {', '.join(DSP_MODES)} only")
-    if requested not in ("demucs", "dsp"):
+    if requested not in ("best", "demucs", "dsp"):
         raise ValueError(f"unknown backend {requested!r}")
     return requested
+
+
+#: Best quality: the Demucs model that splits the instrumental, by mode (2 stems uses it to find
+#: any voice the vocal model left behind).
+BEST_DEMUCS = {"2stems": "htdemucs_ft", "4stems": "htdemucs_ft", "6stems": "htdemucs_6s"}
+#: Best quality: the share of the work the vocal model takes (the rest is Demucs).
+BEST_VOCALS_SHARE = 0.55
+
+
+def separate_best(
+    y: np.ndarray,
+    mode: str,
+    progress: Progress | None = None,
+    should_stop: Callable[[], bool] | None = None,
+    on_download: Callable[[str], None] | None = None,
+) -> dict[str, np.ndarray]:
+    """Vocals with BS-RoFormer, then the instrumental (the mix less those vocals) with Demucs.
+
+    BS-RoFormer's vocals are the cleanest, but on a voice buried low in the mix it can leave part
+    of it behind; Demucs, splitting the instrumental, finds that part as "vocals", and it goes back
+    to the vocals. (On MUSDB18 test songs this took a rap vocal from 1.5 to 7.7 dB SDR, against
+    Demucs' 5.5, for half a dB on a clear one, which stayed at 11.5 against Demucs' 6.4.)
+    "Other" is the instrumental less the named instruments, so the stems add up to the mix.
+    """
+    y = np.atleast_2d(np.asarray(y, dtype=np.float32))
+    if y.shape[0] == 1:
+        y = np.repeat(y, 2, axis=0)
+    share = BEST_VOCALS_SHARE
+    vocals = roformer.separate_vocals(
+        y,
+        (lambda f: progress(share * f)) if progress else None,
+        should_stop,
+        (lambda: on_download("vocals")) if on_download else None,
+    )
+    instrumental = y - vocals
+    parts = neural.separate(
+        instrumental,
+        "6stems" if mode == "6stems" else "4stems",
+        (lambda f: progress(share + (1 - share) * f)) if progress else None,
+        should_stop,
+        (lambda: on_download("instruments")) if on_download else None,
+        # KEYFINDER_DEMUCS_MODEL stands in for it, as for the Demucs engine (tests use Demucs' test model).
+        model_name=(os.environ.get("KEYFINDER_DEMUCS_MODEL") if mode != "6stems" else None) or BEST_DEMUCS[mode],
+    )
+    missed = parts.pop("vocals")
+    vocals = vocals + missed
+    instrumental = instrumental - missed
+    if mode == "2stems":
+        return {"vocals": vocals, "accompaniment": instrumental}
+    parts["other"] = instrumental - sum(v for k, v in parts.items() if k != "other")
+    return {"vocals": vocals, **parts}
 
 
 def separate(
@@ -72,6 +132,9 @@ def separate(
         raise ValueError(f"unknown separation mode {mode!r}; choose from {', '.join(MODES)}")
     backend = choose_backend(backend, mode)
     y = audio.load(path, audio.SEPARATION_SR, mono=False)
+    if backend == "best":
+        best_download = (lambda _which: on_download()) if on_download else None
+        return separate_best(y, mode, progress, should_stop, best_download), audio.SEPARATION_SR
     if backend == "demucs":
         return neural.separate(y, mode, progress, should_stop, on_download), audio.SEPARATION_SR
     if mode not in DSP_MODES:

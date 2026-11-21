@@ -34,6 +34,7 @@ from . import (
     neural,
     player_export,
     remote,
+    roformer,
     separation,
     stems,
     tempo,
@@ -68,6 +69,7 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
     # Demucs weights: the desktop app keeps them with its settings, not in the library.
     models = Path(models_dir or os.environ.get("KEYFINDER_MODELS") or data_dir / "models")
     neural.configure(models)
+    roformer.configure(models)
     lyrics.configure(models)
     store = JobStore(data_dir, inline=inline)
     transposer = Transposer(data_dir)
@@ -104,6 +106,7 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
             "max_upload_mb": MAX_UPLOAD_BYTES // (1024 * 1024),
             "desktop": bool(token),
             "demucs": neural.status(),
+            "best": roformer.status() if separation.best_available() else {"installed": False},
             "lyrics": lyrics.status(),
         }
 
@@ -125,6 +128,14 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         return neural.status()
+
+    @app.post("/api/best/download", status_code=202)
+    def download_best():
+        """Fetch the Best quality vocal model (640 MB) ahead of time; /api/capabilities shows how it went."""
+        if not separation.best_available():
+            raise HTTPException(400, "Best quality separation isn't installed in this engine")
+        roformer.download()
+        return roformer.status()
 
     @app.get("/api/songs")
     def list_songs():

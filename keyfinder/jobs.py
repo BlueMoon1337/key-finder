@@ -429,7 +429,7 @@ class JobStore:
     def _separate(self, song_id: str, song: dict, source: Path):
         """Separate with the song's backend, reporting progress between 45 % and 85 %."""
         backend = song["backend"]
-        label = "Demucs" if backend == "demucs" else "the fast separator"
+        label = {"best": "Best quality (BS-RoFormer and Demucs)", "demucs": "Demucs"}.get(backend, "the fast separator")
         separating = f"Separating stems with {label}"
         self._update(song_id, stage=separating, progress=0.45)
         last = [0.0]
@@ -455,7 +455,8 @@ class JobStore:
 
         def on_download() -> None:
             downloading[0] = True
-            self._update(song_id, stage="Downloading the Demucs model (first time only)")
+            what = "the Best quality models" if backend == "best" else "the Demucs model"
+            self._update(song_id, stage=f"Downloading {what} (first time only)")
 
         try:
             separated = separation.separate(source, song["mode"], backend, progress, should_stop, on_download)

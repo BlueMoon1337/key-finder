@@ -36,7 +36,7 @@ def stereo(seconds=3.0):
 def test_status_reports_installed_and_device():
     status = neural.status()
     assert status["installed"] is True and status["device"] == "cpu"
-    assert set(status["models"]) == {"htdemucs", "htdemucs_6s"}
+    assert set(status["models"]) == {"htdemucs", "htdemucs_6s", "htdemucs_ft"}
 
 
 @pytest.mark.parametrize("mode,names", [

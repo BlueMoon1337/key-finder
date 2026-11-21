@@ -213,7 +213,8 @@ function importOptions(): ImportOptions {
   const hasDemucs = state.capabilities?.backends.includes('demucs')
   // The fast DSP separator does 2 or 4 stems; ask for 4 when 6 isn't possible.
   if (mode === '6stems' && !hasDemucs) return { mode: '4stems', backend: 'auto', lyrics }
-  if (backend === 'demucs' && !hasDemucs) return { mode, backend: 'auto', lyrics }
+  if ((backend === 'demucs' || backend === 'best') && !hasDemucs) return { mode, backend: 'auto', lyrics }
+  if (backend === 'best' && !state.capabilities?.backends.includes('best')) return { mode, backend: 'auto', lyrics }
   return { mode, backend, lyrics }
 }
 

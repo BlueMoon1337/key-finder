@@ -27,7 +27,7 @@ SR = 44100
 #: The model each separation mode uses. KEYFINDER_DEMUCS_MODEL overrides it for 2 and 4 stems
 #: (e.g. ``htdemucs_ft``: a little better, four times slower).
 MODEL_FOR_MODE = {"2stems": "htdemucs", "4stems": "htdemucs", "6stems": "htdemucs_6s"}
-MODELS = ("htdemucs", "htdemucs_6s")
+MODELS = ("htdemucs", "htdemucs_6s", "htdemucs_ft")
 OVERLAP = 0.25
 
 _models_dir: Path | None = None
@@ -175,12 +175,13 @@ def separate(
     progress: Callable[[float], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
     on_download: Callable[[], None] | None = None,
+    model_name: str | None = None,
 ) -> dict[str, np.ndarray]:
-    """Split a ``(2, n)`` signal at 44.1 kHz into the stems of ``mode``."""
+    """Split a ``(2, n)`` signal at 44.1 kHz into the stems of ``mode`` (with ``model_name``, if given)."""
     import torch
     from demucs.apply import BagOfModels, apply_model
 
-    model = load(model_for(mode), on_download)
+    model = load(model_name or model_for(mode), on_download)
     wav = torch.from_numpy(np.ascontiguousarray(np.atleast_2d(y), dtype=np.float32))
     if wav.shape[0] == 1:
         wav = wav.repeat(2, 1)
