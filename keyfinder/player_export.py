@@ -15,6 +15,8 @@ Player imports MultiTracks.com downloads, so the package follows their layout:
   click (a MultiTracks download) keeps that one instead, and its other stems their names;
 * ``Album.jpg``, the cover, when there is one.
 
+The stems come from their lossless masters (``jobs.save_stem``), not the mp3s the app plays.
+
 Pitch and speed apply to every stem, the click and the markers, so a song exported two
 semitones down at 90 % arrives in Player in its new key and tempo.
 """
@@ -30,7 +32,7 @@ from pathlib import Path
 import numpy as np
 
 from . import audio, key, tempo, transform
-from .jobs import ORIGINAL, stem_labels
+from .jobs import ORIGINAL, master_path, stem_labels
 
 SR = transform.SR
 CLICK_STEM = "Click Track"
@@ -184,14 +186,14 @@ def build(song: dict, folder: Path, dest: Path, semitones: int = 0, speed: float
                 + _cues(markers))
 
     # Every stem and the click the same length, so they line up to the sample in Player: decoding
-    # and time-stretching each MP3 can leave a few milliseconds more or less.
+    # and time-stretching each stem can leave a few milliseconds more or less.
     frames = int(round(result["duration"] / speed * SR))
     tmp = dest.with_name(dest.stem + ".partial.zip")
     try:
         # Stored, not deflated: audio barely compresses, and Player reads stored zips fastest.
         with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED, allowZip64=True) as zf:
             for stem, label in files:
-                y = transform.shift(audio.load(folder / "stems" / f"{stem}.mp3", SR, mono=False), semitones, speed)
+                y = transform.shift(audio.load(master_path(folder / "stems", stem), SR, mono=False), semitones, speed)
                 y = np.pad(y, ((0, 0), (0, max(0, frames - y.shape[1]))))[:, :frames]
                 _write_wav(zf, f"{name}/MultiTracks/{label}.wav", y, metadata)
             if not own_click:

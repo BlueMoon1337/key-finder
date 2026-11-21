@@ -114,6 +114,8 @@ In the player's **Practice** panel, choose **Stems for Player** and **Export Ste
 | A beat map in each WAV (a `bmap` chunk) | Where bar 1 falls, every tempo change and every change in bar length, which Player lists in **Song Settings ▸ Tempo Changes** and **Time Changes**. Its click, bar lines, jumps at the next bar and count-ins follow them. |
 | `Album.jpg` | The cover. |
 
+The stems are full quality: KeyFinder keeps a lossless copy (FLAC) of every stem it makes or imports, and exports, the Player zip and your mixes, are made from those, not from the MP3s the app plays. A song added before KeyFinder kept them (1.3.4 and earlier) exports from its MP3s, which cut off around 16 kHz; add it again for full-quality stems. The lossless copies take about 20 MB per stem for a four-minute song.
+
 The beat map is finer than the [tempo sections](#tempo-changes): it's read from the beats as they were tracked (in each tempo section at its own tempo), and records every move of more than 3 % that stays for eight beats, so Player's click follows a band that settles a little faster after a bridge, while a live performance's drift stays one tempo. A bar runs from one downbeat to the next, so a bar stretched or cut short where the downbeats shift is a time signature change of its own, as the click plays it. The player's **Tempo** figure counts these changes (when the song has no tempo sections, which it shows instead) and the bar lengths, and lists each one when you point at it.
 
 The `bmap` chunk is JSON, with times in seconds: `{"version": 1, "offset": 0.52, "tempos": [[0, 156.0], [95.3, 150.2]], "meters": [[0, 4, 4], [61.0, 2, 4]]}`.

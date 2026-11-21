@@ -124,6 +124,28 @@ def test_package_is_laid_out_as_player_imports_it(song_folder):
     assert [(wav["cues"][i], wav["labels"][i]) for i in (1, 2)] == [(0, "E minor"), (8 * sr, "D minor")]
 
 
+def test_package_is_made_from_the_lossless_masters(song_folder):
+    from keyfinder import audio
+    from keyfinder.jobs import save_stem
+
+    # An 18 kHz tone: a 192 kbps mp3 loses it, the FLAC master keeps it (to 16-bit precision).
+    sr = player_export.SR
+    t = np.arange(sr * 8) / sr
+    tone = np.vstack([0.3 * np.sin(2 * np.pi * 18000 * t)] * 2).astype(np.float32)
+    save_stem(song_folder / "stems", "vocals", tone, sr)
+    assert (song_folder / "stems" / "vocals.flac").exists()
+    mp3 = audio.load(song_folder / "stems" / "vocals.mp3", sr, mono=False)
+    dest = player_export.build(song(), song_folder, song_folder / "out.zip")
+    with zipfile.ZipFile(dest) as zf:
+        data = zf.read(next(n for n in zf.namelist() if n.endswith("/Vocals.wav")))
+        # The other stems have no master (as in a song from before them): their mp3s are used.
+        assert sum(n.endswith(".wav") for n in zf.namelist()) == 4
+    pcm = np.frombuffer(data[data.index(b"data") + 8:], "<i2").reshape(-1, 2).T / 32767.0
+    error = lambda y: 10 * np.log10(np.mean((y[:, sr:7 * sr] - tone[:, sr:7 * sr]) ** 2) / np.mean(tone ** 2))  # noqa: E731
+    assert error(pcm) < -60
+    assert error(mp3[:, :tone.shape[1]]) > -40  # what exporting the mp3 would have given
+
+
 def test_unsplit_song_and_cover(song_folder):
     (song_folder / "cover.jpg").write_bytes(b"\xff\xd8\xff\xe0 not really a jpeg")
     dest = player_export.build(song(stems=["original"]), song_folder, song_folder / "out.zip")

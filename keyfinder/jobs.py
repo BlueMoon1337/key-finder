@@ -5,7 +5,9 @@ Each song lives in ``<data>/songs/<id>/``:
 * ``source.<ext>`` - the uploaded file
 * ``song.json``    - status, progress, metadata, analysis results and stem list
 * ``cover.jpg``    - embedded artwork or a video frame, when there is one
-* ``stems/``       - one mp3 per stem, plus cached pitch-shifted renders
+* ``stems/``       - each stem twice: an mp3 the app plays, and a lossless FLAC master that
+  exports (Player packages, mixdowns) are made from; plus cached pitch-shifted renders.
+  Songs from before the masters have only the mp3s, and exports use those.
 
 A song that arrives as stems (a MultiTracks zip, a folder of stems, a Player song) is a
 "package": its stems are kept as they are, named and sorted by kind with Player's rules
@@ -32,6 +34,7 @@ from . import analysis, audio, lyrics, neural, package, separation, stems
 ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 ORIGINAL = "original"
 MIN_SECONDS = 2
+MASTER = ".flac"  # the lossless copy of each stem (save_stem)
 PACKAGE = "stems"  # the mode of a song that arrived as stems
 # KeyFinder's separated stems by the names Player routes (Player reads "Guitar" as an electric
 # guitar, "Other" goes to its Aux bus).
@@ -51,6 +54,22 @@ def stem_labels(song: dict) -> tuple[dict[str, str], dict[str, str]]:
         names.setdefault(sid, SEPARATED_NAMES.get(sid, sid.replace("-", " ").title()))
         kinds.setdefault(sid, stems.kind_of(names[sid]))
     return names, kinds
+
+
+def save_stem(stems_dir: Path, name: str, y: np.ndarray, sr: int) -> None:
+    """Save a stem as the mp3 the app plays and the lossless FLAC master exports use.
+
+    The mp3 alone would cost an export its top octave (192 kbps MP3 cuts off near 16 kHz) and
+    add codec noise to every stem, so the stems wouldn't add back up to the song.
+    """
+    audio.save(stems_dir / f"{name}.mp3", y, sr)
+    audio.save(stems_dir / f"{name}{MASTER}", y, sr)
+
+
+def master_path(stems_dir: Path, name: str) -> Path:
+    """A stem's best copy: its lossless master, else (a song from before them) its mp3."""
+    master = stems_dir / f"{name}{MASTER}"
+    return master if master.exists() else stems_dir / f"{name}.mp3"
 
 
 class SongNotFound(KeyError):
@@ -320,7 +339,7 @@ class JobStore:
             self._update(song_id, analysis=result, progress=0.35)
 
             full = audio.load(source, audio.SEPARATION_SR, mono=False)
-            audio.save(stems_dir / f"{ORIGINAL}.mp3", full, audio.SEPARATION_SR)
+            save_stem(stems_dir, ORIGINAL, full, audio.SEPARATION_SR)
             stems = [ORIGINAL]
             if song["mode"] != "none":
                 separated, sr = self._separate(song_id, song, source)
@@ -331,7 +350,7 @@ class JobStore:
                     self._update(song_id, analysis=result)
                 self._update(song_id, stage="Encoding stems", progress=0.87)
                 for name, data in separated.items():
-                    audio.save(stems_dir / f"{name}.mp3", data, sr)
+                    save_stem(stems_dir, name, data, sr)
                     stems.append(name)
             self._update(song_id, status="ready", stage="Ready", progress=1.0, stems=stems)
             self._queue_lyrics(song_id)
@@ -387,11 +406,11 @@ class JobStore:
             mono = resample_poly(y.mean(axis=0), half, sr).astype(np.float32)
             kind = stem["kind"]
             if kind == "reference" and reference is None:
-                audio.save(stems_dir / f"{ORIGINAL}.mp3", y, sr)
+                save_stem(stems_dir, ORIGINAL, y, sr)
                 reference = mono
                 continue
             sid = stems.stem_id(stem["name"], used)
-            audio.save(stems_dir / f"{sid}.mp3", y, sr)
+            save_stem(stems_dir, sid, y, sr)
             ids.append(sid)
             names[sid], kinds[sid] = stem["name"], kind
             if kind == "click" and click is None:
@@ -412,7 +431,7 @@ class JobStore:
         if reference is None:
             mix = sums["full"]
             peak = float(np.abs(mix).max()) if mix.size else 0.0
-            audio.save(stems_dir / f"{ORIGINAL}.mp3", mix * (0.98 / peak if peak > 0.98 else 1.0), sr)
+            save_stem(stems_dir, ORIGINAL, mix * (0.98 / peak if peak > 0.98 else 1.0), sr)
 
         self._update(song_id, stage="Detecting key, tempo and chords", progress=0.65)
         result = analysis.analyze_package(full, sums["harmonic"], click, half,

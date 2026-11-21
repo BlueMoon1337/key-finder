@@ -40,7 +40,7 @@ from . import (
     tempo,
     transform,
 )
-from .jobs import ORIGINAL, JobStore, SongNotFound, stem_labels
+from .jobs import ORIGINAL, JobStore, SongNotFound, master_path, stem_labels
 from .transposer import FORMATS as TRANSPOSE_FORMATS
 from .transposer import NotFound, Transposer
 
@@ -428,7 +428,7 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
                 raise HTTPException(400, f"bad volume for {name!r}") from exc
         dest = exports / f"export-{os.getpid()}-{threading.get_ident()}.{format}"
         try:
-            transform.mixdown({s: folder / "stems" / f"{s}.mp3" for s in parts}, levels, dest, semitones, speed)
+            transform.mixdown({s: master_path(folder / "stems", s) for s in parts}, levels, dest, semitones, speed)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         suffix = []
