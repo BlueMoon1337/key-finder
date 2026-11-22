@@ -215,5 +215,14 @@ def separate(
         vocals = sources.pop("vocals")
         return {"vocals": vocals, "accompaniment": np.sum(list(sources.values()), axis=0)}
     if mode == "6stems":
-        return {name: sources[name] for name in ("vocals", "drums", "bass", "guitar", "piano", "other")}
+        # The 6-stem model estimates each instrument on its own, and together they make up the song
+        # only roughly (about 19 dB, against the 4-stem model's 34): Other takes what they miss, so
+        # the stems add up to the song.
+        mix = np.ascontiguousarray(np.atleast_2d(y), dtype=np.float32)
+        if mix.shape[0] == 1:
+            mix = np.repeat(mix, 2, axis=0)
+        named = ("vocals", "drums", "bass", "guitar", "piano")
+        stems = {name: sources[name] for name in named}
+        stems["other"] = mix - np.sum(list(stems.values()), axis=0)
+        return stems
     return {name: sources[name] for name in ("vocals", "drums", "bass", "other")}

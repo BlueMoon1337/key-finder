@@ -65,6 +65,27 @@ def test_two_stems_accompaniment_is_the_other_three():
     np.testing.assert_allclose(two["accompaniment"], four["drums"] + four["bass"] + four["other"], atol=1e-4)
 
 
+def test_six_stems_add_up_to_the_song(monkeypatch):
+    """The 6-stem model's estimates don't quite make up the song; Other takes what they miss."""
+    import demucs.apply
+    import torch
+
+    class SixStems:
+        sources = ["drums", "bass", "other", "vocals", "guitar", "piano"]
+        segment = 7.8
+
+    def guess(model, wav, **kwargs):  # estimates that leave a good part of the song out
+        n = wav.shape[-1]
+        return torch.from_numpy(np.random.default_rng(0).normal(0, 0.1, (1, 6, 2, n)).astype(np.float32))
+
+    monkeypatch.setattr(neural, "load", lambda name, on_download=None: SixStems())
+    monkeypatch.setattr(demucs.apply, "apply_model", guess)
+    y = stereo()
+    stems = neural.separate(y, "6stems")
+    assert list(stems) == ["vocals", "drums", "bass", "guitar", "piano", "other"]
+    np.testing.assert_allclose(sum(stems.values()), y, atol=1e-5)
+
+
 def test_cancel_stops_the_separation():
     with pytest.raises(neural.Cancelled):
         neural.separate(stereo(), "4stems", should_stop=lambda: True)
