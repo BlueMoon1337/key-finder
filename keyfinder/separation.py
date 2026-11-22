@@ -194,6 +194,11 @@ def _separate_extra(base, y, mode, choir, strings, progress, should_stop, on_cho
             stems["other"] = stems["other"] + stems.pop("guitar") + stems.pop("piano")
         if mode == "2stems":
             stems["accompaniment"] = stems.pop("drums") + stems.pop("bass") + stems.pop("other")
+        # The 6-stem model estimates each instrument on its own, and together they make up the song
+        # only roughly (about 19 dB, against the 4-stem model's 34): the rest takes what they miss,
+        # so the stems add up to the song (as Best quality's do).
+        rest = "accompaniment" if mode == "2stems" else "other"
+        stems[rest] = np.atleast_2d(y).astype(np.float32) - sum(v for k, v in stems.items() if k != rest)
     if choir:
         if should_stop and should_stop():
             raise neural.Cancelled()
