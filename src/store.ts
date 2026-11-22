@@ -218,11 +218,15 @@ function importOptions(): ImportOptions {
   const hasDemucs = state.capabilities?.backends.includes('demucs')
   // The fast DSP separator does 2 or 4 stems; ask for 4 when 6 isn't possible.
   if (mode === '6stems' && !hasDemucs) return { mode: '4stems', backend: 'auto', lyrics }
-  if (backend === 'demucs' && !hasDemucs) return { mode, backend: 'auto', lyrics }
+  if ((backend === 'demucs' || backend === 'best') && !hasDemucs) return { mode, backend: 'auto', lyrics }
+  if (backend === 'best' && !state.capabilities?.backends.includes('best')) {
+    return { mode, backend: 'auto', lyrics, ...extraStems({ ...state.settings, backend: 'auto' }) }
+  }
   return { mode, backend, lyrics, ...extraStems() }
 }
 
-/** Choir and strings, when they can be done: with Demucs, separating (and the choir's model runner there). */
+/** Choir and strings, when they can be done: separating with Demucs or Best quality (and, for the
+ * choir, with its model runner in the engine). */
 export function extraStems(s: Settings = state.settings, caps = state.capabilities) {
   const demucs = !!caps?.backends.includes('demucs') && s.backend !== 'dsp' && s.mode !== 'none'
   return { choir: s.choir && demucs && !!caps?.choir?.installed, strings: s.strings && demucs }

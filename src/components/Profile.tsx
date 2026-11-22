@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { type Backend, type ChordLevel, type LyricsMode, type SeparationMode, downloadChoirModel, downloadDemucs, downloadLyricsModel } from '../api'
+import { type Backend, type ChordLevel, type LyricsMode, type SeparationMode, downloadBest, downloadChoirModel, downloadDemucs, downloadLyricsModel } from '../api'
 import { desktop, isMac } from '../platform'
 import {
   REPOSITORY_NAME,
@@ -25,6 +25,7 @@ export function Profile() {
   const caps = useApp((s) => s.capabilities)
   const engine = useApp((s) => s.engine)
   const hasDemucs = !!caps?.backends.includes('demucs')
+  const hasBest = !!caps?.backends.includes('best')
 
   const stats = useMemo(() => {
     const ready = (songs ?? []).filter((s) => s.status === 'ready')
@@ -77,7 +78,10 @@ export function Profile() {
           <label>
             Separation engine
             <select value={settings.backend} onChange={(e) => updateSettings({ backend: e.target.value as Backend })}>
-              <option value="auto">Best available</option>
+              <option value="auto">Standard ({hasDemucs ? 'Demucs' : 'fast'})</option>
+              <option value="best" disabled={!hasBest}>
+                Best quality (BS-RoFormer + Demucs, slower){hasBest ? '' : ' - not installed'}
+              </option>
               <option value="demucs" disabled={!hasDemucs}>
                 Demucs (neural){hasDemucs ? '' : ' - not installed'}
               </option>
@@ -199,7 +203,8 @@ function ExtraStems() {
 
 const DEMUCS_MODELS = [
   { name: 'htdemucs', label: '4-stem model', use: 'vocals, drums, bass, other (and 2 stems)' },
-  { name: 'htdemucs_6s', label: '6-stem model', use: 'adds guitar and piano' },
+  { name: 'htdemucs_6s', label: '6-stem model', use: 'adds guitar and piano (and Best quality’s 6 stems)' },
+  { name: 'htdemucs_ft', label: 'Fine-tuned 4-stem model', use: 'Best quality’s drums, bass and other' },
 ]
 
 function LyricsSection() {
@@ -336,7 +341,63 @@ function DemucsSection() {
       </div>
       {demucs.download_error && <p className="error">{demucs.download_error}</p>}
       {choir?.download_error && <p className="error">{choir.download_error}</p>}
+      <BestModel />
     </section>
+  )
+}
+
+/**
+ * Best quality's vocal model (BS-RoFormer): its download, with progress. It splits the vocals off
+ * before Demucs splits the rest, so the vocals are cleaner and nothing of them bleeds into the
+ * other stems.
+ */
+function BestModel() {
+  const best = useApp((s) => s.capabilities?.best)
+  const downloading = !!best?.downloading
+
+  useEffect(() => {
+    if (!downloading) return
+    const timer = window.setInterval(() => void loadCapabilities(), 1000)
+    return () => window.clearInterval(timer)
+  }, [downloading])
+
+  if (!best?.installed) return null
+  const mb = Math.round((best.size ?? 0) / 1e6)
+  return (
+    <>
+      <p className="hint">
+        <b>Best quality</b> (Separation engine above) splits the vocals off with <b>BS-RoFormer</b>, a newer network that
+        separates vocals more cleanly, then lets Demucs’ fine-tuned model split the rest. It takes a few times as long as
+        Demucs: best on Apple silicon or an NVIDIA GPU.
+      </p>
+      <div className="models">
+        <div className="row model">
+          <span className="model-name">
+            <b>BS-RoFormer vocal model</b>
+            <span className="muted">{mb} MB, downloaded once, the first time it’s needed</span>
+          </span>
+          {best.downloaded ? (
+            <span className="ready">✓ Downloaded</span>
+          ) : downloading ? (
+            <span className="muted">Downloading… {Math.round((best.progress ?? 0) * 100)}%</span>
+          ) : (
+            <button
+              onClick={async () => {
+                try {
+                  await downloadBest()
+                  await loadCapabilities()
+                } catch (e) {
+                  toast(errorMessage(e), true)
+                }
+              }}
+            >
+              Download
+            </button>
+          )}
+        </div>
+      </div>
+      {best.download_error && <p className="error">{best.download_error}</p>}
+    </>
   )
 }
 

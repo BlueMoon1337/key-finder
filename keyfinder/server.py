@@ -34,13 +34,14 @@ from . import (
     neural,
     player_export,
     remote,
+    roformer,
     separation,
     stems,
     tempo,
     transform,
     vocal_split,
 )
-from .jobs import ORIGINAL, JobStore, SongNotFound, stem_labels
+from .jobs import ORIGINAL, JobStore, SongNotFound, master_path, stem_labels
 from .transposer import FORMATS as TRANSPOSE_FORMATS
 from .transposer import NotFound, Transposer
 
@@ -69,6 +70,7 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
     # Demucs weights: the desktop app keeps them with its settings, not in the library.
     models = Path(models_dir or os.environ.get("KEYFINDER_MODELS") or data_dir / "models")
     neural.configure(models)
+    roformer.configure(models)
     lyrics.configure(models)
     vocal_split.configure(models)
     store = JobStore(data_dir, inline=inline)
@@ -106,6 +108,7 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
             "max_upload_mb": MAX_UPLOAD_BYTES // (1024 * 1024),
             "desktop": bool(token),
             "demucs": neural.status(),
+            "best": roformer.status() if separation.best_available() else {"installed": False},
             "lyrics": lyrics.status(),
             "choir": vocal_split.status(),
         }
@@ -136,6 +139,14 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         return neural.status()
+
+    @app.post("/api/best/download", status_code=202)
+    def download_best():
+        """Fetch the Best quality vocal model (640 MB) ahead of time; /api/capabilities shows how it went."""
+        if not separation.best_available():
+            raise HTTPException(400, "Best quality separation isn't installed in this engine")
+        roformer.download()
+        return roformer.status()
 
     @app.get("/api/songs")
     def list_songs():
@@ -435,7 +446,7 @@ def create_app(data_dir: str | Path | None = None, inline: bool = False, token: 
                 raise HTTPException(400, f"bad volume for {name!r}") from exc
         dest = exports / f"export-{os.getpid()}-{threading.get_ident()}.{format}"
         try:
-            transform.mixdown({s: folder / "stems" / f"{s}.mp3" for s in parts}, levels, dest, semitones, speed)
+            transform.mixdown({s: master_path(folder / "stems", s) for s in parts}, levels, dest, semitones, speed)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         suffix = []

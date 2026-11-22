@@ -34,7 +34,7 @@ def upload_named(client, data, name, mode="none"):
                        data={"mode": mode, "backend": "dsp"})
 
 
-def test_full_flow(client, song_bytes):
+def test_full_flow(client, song_bytes, tmp_path):
     res = upload(client, song_bytes)
     assert res.status_code == 201, res.text
     song_id = res.json()["id"]
@@ -46,6 +46,9 @@ def test_full_flow(client, song_bytes):
     assert song["analysis"]["key"]["name"] == "A minor"
     assert song["analysis"]["bpm"] == pytest.approx(100, rel=0.02)
     assert "source" not in song
+    # Each stem as the mp3 the app plays and the lossless master exports are made from.
+    stems_dir = tmp_path / "songs" / song_id / "stems"
+    assert {p.name for p in stems_dir.iterdir()} == {f"{s}{ext}" for s in song["stems"] for ext in (".mp3", ".flac")}
 
     listing = client.get("/api/songs").json()
     assert listing[0]["key"] == "A minor" and listing[0]["camelot"] == "8A"

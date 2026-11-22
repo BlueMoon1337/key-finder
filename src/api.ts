@@ -4,7 +4,7 @@ import { API_BASE, desktop } from './platform'
 
 export type SongStatus = 'queued' | 'processing' | 'ready' | 'error'
 export type SeparationMode = '2stems' | '4stems' | '6stems' | 'none'
-export type Backend = 'auto' | 'demucs' | 'dsp'
+export type Backend = 'auto' | 'best' | 'demucs' | 'dsp'
 export type ChordLevel = 'basic' | 'intermediate' | 'advanced'
 
 export interface SongSummary {
@@ -154,6 +154,18 @@ export interface DemucsStatus {
   download_error?: string | null
 }
 
+/** Best quality separation's vocal model (BS-RoFormer, keyfinder/roformer.py). */
+export interface BestStatus {
+  installed: boolean
+  downloaded?: boolean
+  downloading?: boolean
+  /** 0..1 while downloading. */
+  progress?: number | null
+  download_error?: string | null
+  /** Bytes. */
+  size?: number
+}
+
 export interface LyricsModelStatus {
   installed: boolean
   model?: string
@@ -172,6 +184,7 @@ export interface Capabilities {
   max_upload_mb: number
   desktop: boolean
   demucs: DemucsStatus
+  best?: BestStatus
   lyrics?: LyricsModelStatus
   /** Choir isolation's model (vocal_split.py); absent from older engines. */
   choir?: ChoirModelStatus
@@ -233,6 +246,7 @@ export const findLyrics = (id: string, mode?: 'auto' | 'online') =>
 export const editLyrics = (id: string, lines: string[]) => request<Lyrics>(`/api/songs/${id}/lyrics`, json('PUT', { lines }))
 export const downloadDemucs = (model: string) => request<DemucsStatus>('/api/demucs/download', json('POST', { model }))
 export const downloadChoirModel = () => request<ChoirModelStatus>('/api/choir/download', { method: 'POST' })
+export const downloadBest = () => request<BestStatus>('/api/best/download', json('POST', {}))
 export const listSongs = () => request<SongSummary[]>('/api/songs')
 export const getSong = (id: string) => request<Song>(`/api/songs/${id}`)
 export const deleteSong = (id: string) => request<null>(`/api/songs/${id}`, { method: 'DELETE' })

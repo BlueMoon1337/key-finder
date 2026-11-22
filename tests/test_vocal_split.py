@@ -132,10 +132,11 @@ def test_strings_keep_held_notes_and_leave_short_ones():
 # ------------------------------------------------------------------ in a separation
 
 
+@pytest.mark.parametrize("backend", ["demucs", "best"])
 @pytest.mark.parametrize("mode", list(separation.MODES))
 @pytest.mark.parametrize("choir_on,strings_on", [(True, False), (False, True), (True, True)])
-def test_separation_with_choir_and_strings(monkeypatch, tmp_path, mode, choir_on, strings_on):
-    """Demucs (stood in for) then the splits: the right stems, summing to the mix."""
+def test_separation_with_choir_and_strings(monkeypatch, tmp_path, backend, mode, choir_on, strings_on):
+    """Demucs or Best quality (stood in for) then the splits: the right stems, summing to the mix."""
     n = 6 * SR
     sources = {name: rng.normal(0, 0.05, (2, n)).astype(np.float32)
                for name in ("vocals", "drums", "bass", "guitar", "piano", "other")}
@@ -157,13 +158,14 @@ def test_separation_with_choir_and_strings(monkeypatch, tmp_path, mode, choir_on
         return {"lead": vocals * 0.25, "choir": vocals * 0.75}, {"choir_led_seconds": 1.0}
 
     monkeypatch.setattr(separation.neural, "separate", fake_demucs)
+    monkeypatch.setattr(separation, "separate_best", lambda y, m, p=None, *args: fake_demucs(y, m, p))
     monkeypatch.setattr(separation.neural, "available", lambda: True)
     monkeypatch.setattr(separation.vocal_split, "split", fake_split)
     monkeypatch.setattr(separation.vocal_split, "available", lambda: True)
     monkeypatch.setattr(separation.audio, "load", lambda *a, **k: mix)
     notes = {}
     progress = []
-    stems, sr = separation.separate(tmp_path / "song.wav", mode, "demucs", progress.append,
+    stems, sr = separation.separate(tmp_path / "song.wav", mode, backend, progress.append,
                                     choir=choir_on, strings=strings_on, notes=notes)
     assert tuple(stems) == separation.stem_names(mode, choir_on, strings_on)
     assert np.allclose(sum(stems.values()), mix, atol=1e-4)
