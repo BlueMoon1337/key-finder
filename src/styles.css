@@ -2209,3 +2209,23 @@ button.destructive:hover:not(:disabled) {
 .update-token[open] summary {
   margin-bottom: 10px;
 }
+
+/* extra stems (choir, strings) in Profile ▸ New songs */
+.extra-stems {
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+}
+.extra-stems .switch.disabled {
+  opacity: 0.55;
+}
+.extra-stems .hint {
+  margin: 0;
+}
+.sheet-extras {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+  padding: 0 4px;
+  font-size: 14px;
+}

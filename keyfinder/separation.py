@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 from scipy import ndimage, signal
 
-from . import audio, neural
+from . import audio, neural, vocal_split
 
 Progress = Callable[[float], None]
 
@@ -32,6 +32,26 @@ MODES = {
     "6stems": ("vocals", "drums", "bass", "guitar", "piano", "other"),
 }
 DSP_MODES = ("2stems", "4stems")
+
+
+def stem_names(mode: str, choir: bool = False, strings: bool = False) -> tuple[str, ...]:
+    """The stems a separation makes: the mode's, with vocals as lead and choir, and strings & pads
+    out of the other instruments, when asked."""
+    names = list(MODES[mode])
+    if strings:
+        names.insert(names.index("other") if "other" in names else len(names) - 1, "strings")
+    if choir:
+        i = names.index("vocals")
+        names[i:i + 1] = ["lead", "choir"]
+    return tuple(names)
+
+
+def check_extras(backend: str, choir: bool, strings: bool) -> None:
+    """Choir and strings need Demucs (and the choir its model runner)."""
+    if (choir or strings) and backend != "demucs":
+        raise ValueError("choir and strings isolation need the Demucs separator")
+    if choir and not vocal_split.available():
+        raise ValueError("choir isolation needs onnxruntime (pip install -e .[ml])")
 
 
 def demucs_available() -> bool:
@@ -61,22 +81,62 @@ def separate(
     progress: Progress | None = None,
     should_stop: Callable[[], bool] | None = None,
     on_download: Callable[[], None] | None = None,
+    choir: bool = False,
+    strings: bool = False,
+    on_choir_download: Callable[[], None] | None = None,
+    notes: dict | None = None,
 ) -> tuple[dict[str, np.ndarray], int]:
     """Split the file at ``path`` into stereo stems ``{name: (2, n)}``; returns (stems, sample_rate).
 
     ``progress`` gets 0..1 as the work goes; ``should_stop`` is asked now and then and
     cancels the separation (raising :class:`neural.Cancelled`) when it answers True.
-    ``on_download`` is called before the Demucs model is downloaded the first time.
+    ``on_download`` is called before the Demucs model is downloaded the first time, and
+    ``on_choir_download`` before the choir model is. ``choir`` splits the vocals into lead and
+    choir; ``strings`` takes strings & pads out of the other instruments (both need Demucs).
+    ``notes``, if given, collects what the choir clean-up did.
     """
     if mode not in MODES:
         raise ValueError(f"unknown separation mode {mode!r}; choose from {', '.join(MODES)}")
     backend = choose_backend(backend, mode)
+    check_extras(backend, choir, strings)
     y = audio.load(path, audio.SEPARATION_SR, mono=False)
     if backend == "demucs":
-        return neural.separate(y, mode, progress, should_stop, on_download), audio.SEPARATION_SR
+        if not (choir or strings):
+            return neural.separate(y, mode, progress, should_stop, on_download), audio.SEPARATION_SR
+        return _separate_extra(y, mode, choir, strings, progress, should_stop, on_download, on_choir_download,
+                               notes), audio.SEPARATION_SR
     if mode not in DSP_MODES:
         mode = "4stems"
     return separate_dsp(y, audio.SEPARATION_SR, mode, progress, should_stop), audio.SEPARATION_SR
+
+
+def _separate_extra(y, mode, choir, strings, progress, should_stop, on_download, on_choir_download, notes):
+    """Demucs, then the choir and strings splits on its stems."""
+    # Demucs takes most of the time; the choir model about half as long again.
+    share = 0.6 if choir else 0.9
+    report = (lambda lo, span: (lambda f: progress(lo + span * f))) if progress else (lambda lo, span: None)
+    stems = neural.separate(y, "6stems" if strings else mode, report(0.0, share), should_stop, on_download)
+    if strings:
+        held, rest = split_strings(stems.pop("other"), audio.SEPARATION_SR,
+                                   report(share, 0.1 if choir else 1 - share))
+        stems["strings"], stems["other"] = held, rest
+        if mode != "6stems":  # back to the mode's stems: guitar and piano join the other instruments
+            stems["other"] = stems["other"] + stems.pop("guitar") + stems.pop("piano")
+        if mode == "2stems":
+            stems["accompaniment"] = stems.pop("drums") + stems.pop("bass") + stems.pop("other")
+    if choir:
+        if should_stop and should_stop():
+            raise neural.Cancelled()
+        start = share + (0.1 if strings else 0.0)
+        try:
+            parts, info = vocal_split.split(stems.pop("vocals"), report(start, 1 - start), should_stop,
+                                            on_choir_download)
+        except vocal_split.Cancelled:
+            raise neural.Cancelled() from None
+        stems.update(parts)
+        if notes is not None:
+            notes.update(info)
+    return {name: stems[name] for name in stem_names(mode, choir, strings)}
 
 
 # --------------------------------------------------------------------------- dsp
@@ -155,3 +215,39 @@ def separate_dsp(y: np.ndarray, sr: int, mode: str = "4stems", progress: Progres
         if should_stop and should_stop():
             raise neural.Cancelled()
     return out
+
+
+# --------------------------------------------------------------------------- strings & pads
+
+STRINGS_HOLD_SECONDS = 0.75  # a sound held about this long counts as strings or a pad
+
+
+def split_strings(other: np.ndarray, sr: int, progress: Progress | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """Split Demucs' 6-stem "other" (what's left once vocals, drums, bass, guitar and piano are out)
+    into strings & pads and the rest. Bowed strings and pads hold their notes; what's left of the
+    other instruments is mostly shorter. No model is trained for strings, so synth pads, organ or
+    held brass come through with them. The two parts sum to ``other``.
+    """
+    other = np.atleast_2d(np.asarray(other, dtype=np.float32))
+    n = other.shape[1]
+    block, pad = int(BLOCK_SECONDS * sr), int(PAD_SECONDS * sr)
+    strings = np.zeros_like(other)
+    hold = max(3, int(round(STRINGS_HOLD_SECONDS * sr / HOP)) | 1)
+    freqs = np.fft.rfftfreq(N_FFT, 1.0 / sr)[:, None]
+    band = 1.0 / (1.0 + (100.0 / np.maximum(freqs, 1.0)) ** 4) / (1.0 + (freqs / 12000.0) ** 4)
+    for start in range(0, n, block):
+        lo, hi = max(0, start - pad), min(n, start + block + pad)
+        y = other[:, lo:hi]
+        _, _, spec = signal.stft(y, sr, nperseg=N_FFT, noverlap=N_FFT - HOP)
+        mag = np.abs(spec).mean(axis=0)
+        # Held: what stays for `hold` frames, letting vibrato wander a couple of bins (+-20 Hz).
+        held = np.minimum(ndimage.median_filter(ndimage.maximum_filter(mag, size=(5, 1)), size=(1, hold)), mag)
+        brief = np.maximum(mag - held, 0.0) + ndimage.median_filter(mag, size=(17, 1)) * 0.5
+        mask = _soft_mask(held, brief) * band
+        _, out = signal.istft(spec * mask[None], sr, nperseg=N_FFT, noverlap=N_FFT - HOP)
+        keep = slice(start - lo, start - lo + min(block, n - start))
+        strings[:, start:start + min(block, n - start)] = out[:, : y.shape[1]][:, keep]
+        if progress:
+            progress(min(1.0, (start + block) / n))
+    return strings, other - strings
+

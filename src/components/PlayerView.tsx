@@ -8,6 +8,7 @@ import { SongChords } from './SongChords'
 import { Back5Icon, ChevronLeftIcon, Forward5Icon, LibraryIcon, PauseIcon, PlayIcon } from './Icons'
 import { useFrame } from './useFrame'
 import { usePlayback } from './usePlayback'
+import { Switch } from './Switch'
 
 const LEVELS: { key: ChordLevel; label: string }[] = [
   { key: 'basic', label: 'Basic' },
@@ -553,12 +554,3 @@ function Practice({ song }: { song: Song }) {
   )
 }
 
-function Switch({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
-  return (
-    <label className={`switch ${disabled ? 'disabled' : ''}`}>
-      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
-      <span aria-hidden />
-      {label}
-    </label>
-  )
-}

@@ -37,6 +37,9 @@ export interface Settings {
   chordView: 'piano' | 'guitar'
   /** Lyrics for new songs: LRCLIB, else transcribed ('auto'); LRCLIB only; or none. */
   lyrics: LyricsMode
+  /** New songs: split the vocals into lead and choir; take out strings & pads (both need Demucs). */
+  choir: boolean
+  strings: boolean
 }
 
 export interface Toast {
@@ -73,6 +76,8 @@ const DEFAULT_SETTINGS: Settings = {
   sidebar: true,
   lyrics: 'auto',
   chordView: 'piano',
+  choir: false,
+  strings: false,
 }
 
 function loadSettings(): Settings {
@@ -214,7 +219,13 @@ function importOptions(): ImportOptions {
   // The fast DSP separator does 2 or 4 stems; ask for 4 when 6 isn't possible.
   if (mode === '6stems' && !hasDemucs) return { mode: '4stems', backend: 'auto', lyrics }
   if (backend === 'demucs' && !hasDemucs) return { mode, backend: 'auto', lyrics }
-  return { mode, backend, lyrics }
+  return { mode, backend, lyrics, ...extraStems() }
+}
+
+/** Choir and strings, when they can be done: with Demucs, separating (and the choir's model runner there). */
+export function extraStems(s: Settings = state.settings, caps = state.capabilities) {
+  const demucs = !!caps?.backends.includes('demucs') && s.backend !== 'dsp' && s.mode !== 'none'
+  return { choir: s.choir && demucs && !!caps?.choir?.installed, strings: s.strings && demucs }
 }
 
 function added(count: number, failed: string[]) {

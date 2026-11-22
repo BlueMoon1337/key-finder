@@ -7,4 +7,4 @@ __version__ = "1.3.4"
 # older interface can't work with, or a newer one needs (an endpoint added, renamed or reshaped):
 # update packages carry only the interface, and KeyFinder refuses one that needs a newer engine
 # than the one installed. Engines from before this number count as 1.
-ENGINE_API = 1
+ENGINE_API = 2  # 2: choir and strings isolation (/api/choir/download, choir and strings options)

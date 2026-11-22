@@ -6,7 +6,8 @@
 # Builds for the machine it runs on (macOS arm64 or x64, Windows x64), so the release workflow
 # builds once per platform. It includes Demucs and PyTorch for neural stem separation, and
 # faster-whisper (CTranslate2) for transcribing lyrics; the models' weights aren't bundled but
-# downloaded once, on first use (keyfinder/neural.py, keyfinder/lyrics.py).
+# downloaded once, on first use (keyfinder/neural.py, keyfinder/lyrics.py, and the choir model in
+# keyfinder/vocal_split.py).
 
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 

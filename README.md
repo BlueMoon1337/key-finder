@@ -6,7 +6,7 @@ A practice app for musicians, for macOS and Windows. Add a song and KeyFinder:
 
 - **finds its key** (with the Camelot code, the relative key and how sure it is), **tempo**, beat grid and tuning, and **where the key or tempo changes** (medleys, a faster last song in a live set)
 - **shows the chords** as the song plays, in three levels of detail: basic triads, sevenths, then dim, aug and sus
-- **splits it into stems** with Demucs, Meta AI's neural separator: vocals, drums, bass and other; vocals and accompaniment; or six stems with guitar and piano. A mixer mutes, solos or turns down each one
+- **splits it into stems** with Demucs, Meta AI's neural separator: vocals, drums, bass and other; vocals and accompaniment; or six stems with guitar and piano. It can also split the vocals into the **lead singer and the choir**, and take **strings & pads** out of the other instruments (see [Choir and strings](#choir-and-strings)). A mixer mutes, solos or turns down each one
 - lets you **change the key** (±12 semitones, and the chords transpose with it) and the **speed** (50–150 %, without changing the pitch)
 - has a **metronome that follows the song's own beats**, a one-bar **count-in** and **A–B loops** that snap to beats
 - **transposes audio files** to another key (and speed) without adding them to the library (see [Transposing files](#transposing-files))
@@ -170,6 +170,17 @@ The desktop app separates stems with Demucs, which comes bundled with PyTorch.
 
 Choosing **Fast (DSP)** in Profile skips Demucs. It takes seconds and is good for turning a part down to play along, but it doesn't isolate parts cleanly.
 
+### Choir and strings
+
+Two switches in **Profile ▸ New songs** (and in the Add a Song sheet) add stems Demucs' own models don't have. Both need Demucs.
+
+- **Choir** splits the vocals into **Lead Vocal** and **Choir**, in two steps (`keyfinder/vocal_split.py`):
+  1. A "karaoke" model, **UVR-MDX-NET Karaoke 2** from the [Ultimate Vocal Remover](https://github.com/Anjok07/ultimatevocalremovergui) project (MIT), separates the lead voice from backing voices in Demucs' vocals stem, even where they sing at the same time. It runs on onnxruntime, which the engine already has. Its weights (53 MB) are downloaded once from UVR's model repository on GitHub, checked against their SHA-256, and kept with the Demucs models (**Profile ▸ Stem separation ▸ Choir model ▸ Download** fetches them ahead of time).
+  2. Karaoke models learn from songs with one lead singer, so where a choir carries the melody on its own they call it the lead. KeyFinder checks the model's lead: many voices on one note never line up exactly, so even on held notes their sum is less periodic than one voice (YIN aperiodicity on steady notes: one voice, sung or spoken, measured 0.01–0.04; a children's choir 0.044–0.061). Wherever the lead is like that for two seconds or more, it moves to the Choir. A soloist over a choir keeps a clean lead, so the model's split stands there. A very tightly tuned choir (voices within about ±15 cents) reads as one voice and can stay with the lead; speech over a humming choir can go to the Choir.
+- **Strings & Pads** takes what holds its notes out of the other instruments (`separation.split_strings`): Demucs' 6-stem model removes guitar and piano first, then whatever stays steady for most of a second (vibrato included) becomes **Strings**, and what's shorter stays in **Other**. No open model is trained for strings, so synth pads, organ or held brass come through with them. Strings always use the 6-stem model; with 2 or 4 stems, guitar and piano go back into Other (or the accompaniment).
+
+The stems still add up to the song. Both add a few minutes per song on the CPU; the lyrics are transcribed from the Lead Vocal. From the command line: `keyfinder separate song.mp3 --choir --strings`.
+
 ## Running from source
 
 You need Python 3.10+ and Node.js 20+.
@@ -255,7 +266,8 @@ The engine's HTTP API, used by the interface:
 | Method | Path | |
 | --- | --- | --- |
 | `GET` | `/api/capabilities` | separation engines and modes |
-| `GET` / `POST` | `/api/songs` | the library; add a song by upload (`file`, `mode`, `backend`) |
+| `GET` / `POST` | `/api/songs` | the library; add a song by upload (`file`, `mode`, `backend`, and `choir` / `strings` for the extra stems) |
+| `POST` | `/api/choir/download` | fetch the choir model ahead of time (`/api/capabilities` → `choir` shows how it went) |
 | `POST` | `/api/songs/url` | add a song from a link (public addresses only) |
 | `POST` | `/api/songs/local` | desktop app only: add songs by path |
 | `GET` / `PATCH` / `DELETE` | `/api/songs/{id}` | a song with its analysis; edit its title and artist; delete it |

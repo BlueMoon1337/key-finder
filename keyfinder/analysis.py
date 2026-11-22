@@ -235,8 +235,14 @@ def improve_with_stems(result: dict, stems: dict[str, np.ndarray], sr: int) -> d
 
 
 def harmonic_signal(stems: dict[str, np.ndarray], sr: int) -> np.ndarray | None:
-    """Everything but vocals and drums, mono at the analysis rate; None without harmonic stems."""
-    parts = [stems[name] for name in stems if name not in ("vocals", "drums", "accompaniment")]
+    """Everything but voices and drums, mono at the analysis rate; None without harmonic stems.
+
+    Two-stem separations (an accompaniment, with strings & pads taken out of it or not) have none of
+    their own: the accompaniment has the drums in it.
+    """
+    if "accompaniment" in stems:
+        return None
+    parts = [stems[name] for name in stems if name not in ("vocals", "lead", "choir", "drums")]
     if not parts:
         return None
     harmonic = np.sum([np.atleast_2d(p).mean(axis=0) for p in parts], axis=0)

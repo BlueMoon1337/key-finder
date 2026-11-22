@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
-from . import analysis, audio, separation
+from . import analysis, audio, separation, vocal_split
 
 
 def _fmt_time(seconds: float) -> str:
@@ -36,7 +37,16 @@ def cmd_analyze(args: argparse.Namespace) -> int:
 def cmd_separate(args: argparse.Namespace) -> int:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    stems, sr = separation.separate(args.file, args.mode, args.backend)
+    if args.choir:
+        # The choir model is kept with KeyFinder's other downloads (KEYFINDER_MODELS to choose).
+        models = os.environ.get("KEYFINDER_MODELS") or Path.home() / ".cache" / "keyfinder"
+        vocal_split.configure(Path(models))
+    notes: dict = {}
+    stems, sr = separation.separate(args.file, args.mode, args.backend, choir=args.choir, strings=args.strings,
+                                    on_choir_download=lambda: print("Downloading the choir model (first time only)"),
+                                    notes=notes)
+    if notes.get("choir_led_seconds"):
+        print(f"The choir carried the melody for {notes['choir_led_seconds']:.0f} s: moved from the lead to the choir")
     for name, data in stems.items():
         dest = out / f"{Path(args.file).stem} - {name}.{args.format}"
         audio.save(dest, data, sr)
@@ -63,6 +73,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--backend", choices=["auto", "demucs", "dsp"], default="auto")
     p.add_argument("--out", default="stems")
     p.add_argument("--format", choices=["wav", "mp3", "flac"], default="wav")
+    p.add_argument("--choir", action="store_true", help="split the vocals into lead and choir (Demucs)")
+    p.add_argument("--strings", action="store_true", help="take strings & pads out of the other instruments (Demucs)")
     p.set_defaults(func=cmd_separate)
 
     p = sub.add_parser("serve", help="run the web app")

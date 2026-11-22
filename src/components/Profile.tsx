@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { type Backend, type ChordLevel, type LyricsMode, type SeparationMode, downloadDemucs, downloadLyricsModel } from '../api'
+import { type Backend, type ChordLevel, type LyricsMode, type SeparationMode, downloadChoirModel, downloadDemucs, downloadLyricsModel } from '../api'
 import { desktop, isMac } from '../platform'
 import {
   REPOSITORY_NAME,
@@ -15,8 +15,9 @@ import {
   useUpdates,
 } from '../platform/updates'
 import { confirmDialog } from './Ask'
-import { errorMessage, loadCapabilities, toast, updateSettings, useApp } from '../store'
+import { errorMessage, extraStems, loadCapabilities, toast, updateSettings, useApp } from '../store'
 import { FolderIcon } from './Icons'
+import { Switch } from './Switch'
 
 export function Profile() {
   const songs = useApp((s) => s.songs)
@@ -100,6 +101,7 @@ export function Profile() {
             </select>
           </label>
         </div>
+        <ExtraStems />
         {!hasDemucs && (
           <p className="hint">
             Stems are separated with the fast built-in separator: good for turning parts down to practise along, not for clean
@@ -139,6 +141,60 @@ const DEVICES: Record<string, string> = {
   mps: 'the Apple silicon GPU',
   cuda: 'the NVIDIA GPU',
   cpu: 'the CPU',
+}
+
+/**
+ * Choir and strings: extra stems Demucs' own don't have. The choir comes from a karaoke model plus
+ * KeyFinder's own check for a choir carrying the melody; strings & pads from what holds its notes.
+ */
+function ExtraStems() {
+  const settings = useApp((s) => s.settings)
+  const caps = useApp((s) => s.capabilities)
+  const hasDemucs = !!caps?.backends.includes('demucs')
+  const why = !hasDemucs
+    ? 'needs Demucs'
+    : settings.mode === 'none'
+      ? 'needs separation'
+      : settings.backend === 'dsp'
+        ? 'needs the Demucs separator, not Fast'
+        : null
+  const choirWhy = why ?? (caps?.choir?.installed ? null : 'not available in this engine')
+  const on = extraStems(settings, caps)
+  return (
+    <div className="extra-stems">
+      <Switch
+        checked={settings.choir && !choirWhy}
+        disabled={!!choirWhy}
+        onChange={(choir) => updateSettings({ choir })}
+        label={
+          <span>
+            <b>Choir</b> <span className="muted">· split the vocals into Lead Vocal and Choir{choirWhy ? ` (${choirWhy})` : ''}</span>
+          </span>
+        }
+      />
+      <Switch
+        checked={settings.strings && !why}
+        disabled={!!why}
+        onChange={(strings) => updateSettings({ strings })}
+        label={
+          <span>
+            <b>Strings &amp; Pads</b>{' '}
+            <span className="muted">· take bowed strings and pads out of the other instruments{why ? ` (${why})` : ''}</span>
+          </span>
+        }
+      />
+      {(on.choir || on.strings) && (
+        <p className="hint">
+          {on.choir &&
+            'The lead singer and the choir are split by a karaoke model, then KeyFinder moves passages where a choir sings the melody on its own (which such models take for the lead) to the Choir. A very tightly tuned choir can stay with the lead. '}
+          {on.strings &&
+            'No model is trained for strings, so KeyFinder keeps what holds its notes, once guitar and piano are out: synth pads, organ or held brass come through with the strings. '}
+          {on.strings && settings.mode !== '6stems' && 'Strings use the 6-stem Demucs model. '}
+          Both add a few minutes per song.
+        </p>
+      )}
+    </div>
+  )
 }
 
 const DEMUCS_MODELS = [
@@ -200,14 +256,15 @@ function LyricsSection() {
 
 function DemucsSection() {
   const demucs = useApp((s) => s.capabilities?.demucs)
+  const choir = useApp((s) => s.capabilities?.choir)
   const downloading = demucs?.downloading ?? null
 
   // Follow a download while it runs.
   useEffect(() => {
-    if (!downloading) return
+    if (!downloading && !choir?.downloading) return
     const timer = window.setInterval(() => void loadCapabilities(), 1000)
     return () => window.clearInterval(timer)
-  }, [downloading])
+  }, [downloading, choir?.downloading])
 
   if (!demucs?.installed) return null
   const device = DEVICES[demucs.device ?? 'cpu'] ?? demucs.device
@@ -250,8 +307,35 @@ function DemucsSection() {
             </div>
           )
         })}
+        {choir?.installed && (
+          <div className="row model">
+            <span className="model-name">
+              <b>Choir model</b>
+              <span className="muted">{choir.model}, from Ultimate Vocal Remover (MIT): lead vocal and choir</span>
+            </span>
+            {choir.downloaded ? (
+              <span className="ready">✓ Downloaded</span>
+            ) : choir.downloading ? (
+              <span className="muted">Downloading… {choir.progress !== null ? `${Math.round(choir.progress * 100)}%` : ''}</span>
+            ) : (
+              <button
+                onClick={async () => {
+                  try {
+                    await downloadChoirModel()
+                    await loadCapabilities()
+                  } catch (e) {
+                    toast(errorMessage(e), true)
+                  }
+                }}
+              >
+                Download
+              </button>
+            )}
+          </div>
+        )}
       </div>
       {demucs.download_error && <p className="error">{demucs.download_error}</p>}
+      {choir?.download_error && <p className="error">{choir.download_error}</p>}
     </section>
   )
 }

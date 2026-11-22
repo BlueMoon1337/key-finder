@@ -38,6 +38,8 @@ PACKAGE = "stems"  # the mode of a song that arrived as stems
 SEPARATED_NAMES = {
     "vocals": "Vocals", "drums": "Drums", "bass": "Bass", "guitar": "Guitar", "piano": "Piano",
     "other": "Other", "accompaniment": "Backing",
+    # Choir and strings isolation (vocal_split.py, separation.split_strings).
+    "lead": "Lead Vocal", "choir": "Choir", "strings": "Strings",
 }
 
 
@@ -107,7 +109,7 @@ class JobStore:
     @staticmethod
     def summary(song: dict) -> dict:
         keep = ("id", "title", "artist", "cover", "status", "progress", "stage", "error", "warning", "created_at",
-                "mode", "backend", "stems", "lyrics_status")
+                "mode", "backend", "stems", "lyrics_status", "choir", "strings")
         out = {k: song.get(k) for k in keep}
         result = song.get("analysis") or {}
         if result:
@@ -253,22 +255,26 @@ class JobStore:
     # ------------------------------------------------------------------ jobs
 
     @staticmethod
-    def check_options(mode: str, backend: str) -> str | None:
+    def check_options(mode: str, backend: str, choir: bool = False, strings: bool = False) -> str | None:
         """Validate separation options; returns the backend that will run (None for no separation)."""
         if mode == "none":
             return None
         if mode not in separation.MODES:
             raise ValueError(f"unknown separation mode {mode!r}")
-        return separation.choose_backend(backend, mode)
+        resolved = separation.choose_backend(backend, mode)
+        separation.check_extras(resolved, choir, strings)
+        return resolved
 
     def create(self, filename: str, data_path: Path, mode: str = "4stems", backend: str = "auto",
-               package_folder: Path | None = None, lyrics_mode: str = "auto") -> dict:
+               package_folder: Path | None = None, lyrics_mode: str = "auto",
+               choir: bool = False, strings: bool = False) -> dict:
         """Register an uploaded file (moved from ``data_path``) and queue processing.
 
         A zip, or ``package_folder`` (a folder of stems, read where it is), is a package of stems.
         """
         is_package = package_folder is not None or Path(filename).suffix.lower() == ".zip"
-        resolved = "package" if is_package else self.check_options(mode, backend)
+        choir, strings = (bool(choir), bool(strings)) if not is_package and mode != "none" else (False, False)
+        resolved = "package" if is_package else self.check_options(mode, backend, choir, strings)
         song_id = uuid.uuid4().hex
         folder = self.root / song_id
         (folder / "stems").mkdir(parents=True)
@@ -285,6 +291,7 @@ class JobStore:
             "package_folder": str(package_folder) if package_folder is not None else None,
             "source_name": source_name[:200],
             "mode": PACKAGE if is_package else mode, "backend": resolved, "requested_backend": backend,
+            "choir": choir, "strings": strings,
             "warning": None,
             "status": "queued", "stage": "Waiting", "progress": 0.0, "error": None,
             "stems": [], "analysis": None,
@@ -457,17 +464,33 @@ class JobStore:
             downloading[0] = True
             self._update(song_id, stage="Downloading the Demucs model (first time only)")
 
+        def on_choir_download() -> None:
+            downloading[0] = True
+            self._update(song_id, stage="Downloading the choir model (first time only)")
+
+        choir, strings = bool(song.get("choir")), bool(song.get("strings"))
+        if choir or strings:
+            what = " and ".join(w for w, on in (("the choir", choir), ("strings", strings)) if on)
+            separating = f"Separating stems with Demucs, then {what}"
+            self._update(song_id, stage=separating)
+        notes: dict = {}
         try:
-            separated = separation.separate(source, song["mode"], backend, progress, should_stop, on_download)
+            separated = separation.separate(source, song["mode"], backend, progress, should_stop, on_download,
+                                            choir=choir, strings=strings, on_choir_download=on_choir_download,
+                                            notes=notes)
         except neural.ModelUnavailable as exc:
             # Asked for "best available" and offline the first time: use the fast separator now.
-            if song.get("requested_backend", "auto") != "auto" or song["mode"] not in separation.DSP_MODES:
+            # The fast separator can't do the choir or strings, so those wait for Demucs.
+            if song.get("requested_backend", "auto") != "auto" or song["mode"] not in separation.DSP_MODES \
+                    or choir or strings:
                 raise
             self._update(song_id, backend="dsp", stage="Separating stems with the fast separator",
                          warning=f"{exc} The fast separator was used instead.")
             separated = separation.separate(source, song["mode"], "dsp", progress, should_stop)
         if should_stop():
             raise neural.Cancelled()
+        if notes:
+            self._update(song_id, separation_notes=notes)
         return separated
 
     def _read_metadata(self, song_id: str, source: Path) -> None:

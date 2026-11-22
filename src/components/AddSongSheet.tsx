@@ -4,6 +4,7 @@ import { type ImportSource, desktop } from '../platform'
 import { addFiles, addPaths, addUrl, errorMessage, setState, toast, updateSettings, useApp } from '../store'
 import { ChevronLeftIcon, FilesTile, LinkTile, MusicTile, PhotosTile, StemsTile } from './Icons'
 import { Sheet } from './Sheet'
+import { Switch } from './Switch'
 
 const MEDIA_ACCEPT = 'audio/*,video/*,.mp3,.wav,.flac,.m4a,.aac,.aif,.aiff,.ogg,.wma,.mp4,.mov,.m4v'
 
@@ -24,6 +25,7 @@ const SEPARATIONS: { value: SeparationMode; label: string }[] = [
 
 export function AddSongSheet() {
   const mode = useApp((s) => s.settings.mode)
+  const settings = useApp((s) => s.settings)
   const caps = useApp((s) => s.capabilities)
   const [page, setPage] = useState<'sources' | 'url'>('sources')
   const [url, setUrl] = useState('')
@@ -114,6 +116,22 @@ export function AddSongSheet() {
           ))}
         </select>
       </label>
+      {hasDemucs && mode !== 'none' && (
+        <div className="sheet-extras">
+          <Switch
+            checked={settings.choir && !!caps?.choir?.installed && settings.backend !== 'dsp'}
+            disabled={!caps?.choir?.installed || settings.backend === 'dsp'}
+            onChange={(choir) => updateSettings({ choir })}
+            label="Split vocals into Lead and Choir"
+          />
+          <Switch
+            checked={settings.strings && settings.backend !== 'dsp'}
+            disabled={settings.backend === 'dsp'}
+            onChange={(strings) => updateSettings({ strings })}
+            label="Strings & Pads"
+          />
+        </div>
+      )}
 
       <footer className="sheet-footer">
         <strong>Supported files</strong>

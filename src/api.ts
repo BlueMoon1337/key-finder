@@ -9,6 +9,9 @@ export type ChordLevel = 'basic' | 'intermediate' | 'advanced'
 
 export interface SongSummary {
   id: string
+  /** Separated with the vocals split into lead and choir, and with strings & pads taken out. */
+  choir?: boolean
+  strings?: boolean
   title: string
   artist: string
   cover: boolean
@@ -170,6 +173,19 @@ export interface Capabilities {
   desktop: boolean
   demucs: DemucsStatus
   lyrics?: LyricsModelStatus
+  /** Choir isolation's model (vocal_split.py); absent from older engines. */
+  choir?: ChoirModelStatus
+}
+
+export interface ChoirModelStatus {
+  /** Whether this engine can run it (onnxruntime and PyTorch). */
+  installed: boolean
+  model: string
+  downloaded: boolean
+  downloading: boolean
+  /** 0..1 while downloading. */
+  progress: number | null
+  download_error: string | null
 }
 
 export class ApiError extends Error {
@@ -216,6 +232,7 @@ export const findLyrics = (id: string, mode?: 'auto' | 'online') =>
   request<SongSummary>(`/api/songs/${id}/lyrics`, json('POST', { mode: mode ?? null }))
 export const editLyrics = (id: string, lines: string[]) => request<Lyrics>(`/api/songs/${id}/lyrics`, json('PUT', { lines }))
 export const downloadDemucs = (model: string) => request<DemucsStatus>('/api/demucs/download', json('POST', { model }))
+export const downloadChoirModel = () => request<ChoirModelStatus>('/api/choir/download', { method: 'POST' })
 export const listSongs = () => request<SongSummary[]>('/api/songs')
 export const getSong = (id: string) => request<Song>(`/api/songs/${id}`)
 export const deleteSong = (id: string) => request<null>(`/api/songs/${id}`, { method: 'DELETE' })
@@ -226,6 +243,10 @@ export interface ImportOptions {
   mode: SeparationMode
   backend: Backend
   lyrics: LyricsMode
+  /** Split the vocals into lead and choir (needs Demucs). */
+  choir?: boolean
+  /** Take strings & pads out of the other instruments (needs Demucs). */
+  strings?: boolean
 }
 
 /** Browser: upload a file. */
@@ -235,6 +256,8 @@ export function uploadFile(file: File, opts: ImportOptions) {
   form.append('mode', opts.mode)
   form.append('backend', opts.backend)
   form.append('lyrics', opts.lyrics)
+  form.append('choir', String(!!opts.choir))
+  form.append('strings', String(!!opts.strings))
   return request<SongSummary>('/api/songs', { method: 'POST', body: form })
 }
 
